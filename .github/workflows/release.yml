@@ -71,5 +71,6 @@ jobs:
             release-assets/*.exe \
             release-assets/*-mac.zip \
             release-assets/*-win.zip \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "WhimFlow ${GITHUB_REF_NAME}" \
             --generate-notes
