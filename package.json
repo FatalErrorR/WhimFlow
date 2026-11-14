@@ -10,8 +10,8 @@
     "build": "node scripts/build.js",
     "start": "npm run build && electron .",
     "test": "npm run build && node test/unit.js && node test/smoke.js && node test/features.js && node test/docs.js && node test/code.js && node test/preview.js && node test/layout.js && node test/safety.js",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
     "test:unit": "node test/unit.js"
   },
   "dependencies": {
