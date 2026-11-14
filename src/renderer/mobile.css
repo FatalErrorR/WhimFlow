@@ -85,6 +85,10 @@ body.m-lib #m-bar, body.m-lib #m-tools { display: none; }
 #m-lib > h1 { font: 600 32px/1.15 var(--serif-font); padding: 4px 20px 0; letter-spacing: -.01em; }
 .m-lib-top { display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 20px; }
 .m-local { font: 500 12px var(--ui-font); color: var(--muted); background: color-mix(in srgb, var(--bg) 70%, transparent); border: 1px solid var(--border); padding: 4px 10px; border-radius: 999px; }
+.m-local[data-state="ok"]::before, .m-local[data-state="syncing"]::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: #5b9a6b; }
+.m-local[data-state="syncing"]::before { background: var(--accent); animation: m-pulse 1s ease-in-out infinite; }
+.m-local[data-state="offline"], .m-local[data-state="error"], .m-local[data-state="auth"] { color: var(--tok-deletion); }
+@keyframes m-pulse { 50% { opacity: .3; } }
 .m-search { margin: 12px 20px 0; height: 40px; border-radius: 12px; background: color-mix(in srgb, var(--fg) 7%, transparent); display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--muted); }
 .m-search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font: 16px var(--ui-font); color: var(--fg); }
 .m-chips { display: flex; gap: 8px; padding: 14px 20px 2px; }

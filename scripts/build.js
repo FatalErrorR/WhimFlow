@@ -38,6 +38,8 @@ if (!mobile) {
       const swap = (a, b) => { if (!html.includes(a)) throw new Error('index.html changed: ' + a); html = html.replace(a, b); };
       swap('<meta charset="utf-8">', '<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">');
       swap("script-src 'self' file: 'unsafe-eval';", "script-src 'self' file: blob: 'unsafe-eval'; worker-src 'self' blob:;"); // search runs in a worker
+      // the sync server: https anywhere; plain http only on this computer (as the app itself allows: tests)
+      swap("script-src 'self' file: blob:", "connect-src 'self' file: data: blob: https: http://127.0.0.1:* http://localhost:*; script-src 'self' file: blob:");
       swap('href="../../node_modules/katex/dist/katex.min.css"', 'href="vendor/katex/katex.min.css"');
       swap('<link rel="stylesheet" href="editor.css">', '<link rel="stylesheet" href="editor.css">\n<link rel="stylesheet" href="mobile.css">');
       swap('<script src="dist/app.js"></script>', '<script src="app.js"></script>');

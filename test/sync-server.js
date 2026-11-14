@@ -33,6 +33,18 @@ const step = (name) => console.log('  ✓', name);
     assert.deepStrictEqual((await call('GET', '/v1/ping')).json, { ok: true, version: 1 });
     step('a token is required');
 
+    // ---- the iPhone app's page may call it; other web pages may not ----
+    const pre = (origin) => fetch(base + '/v1/file?path=a.md', { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'authorization,if-match' } });
+    let o = await pre('capacitor://localhost');
+    assert.strictEqual(o.status, 204);
+    assert.strictEqual(o.headers.get('access-control-allow-origin'), 'capacitor://localhost');
+    assert(/If-Match/.test(o.headers.get('access-control-allow-headers')) && /PUT/.test(o.headers.get('access-control-allow-methods')));
+    o = await pre('https://evil.example');
+    assert.strictEqual(o.headers.get('access-control-allow-origin'), null, 'another site gets no permission');
+    const g = await fetch(base + '/v1/ping', { headers: { Origin: 'capacitor://localhost', Authorization: 'Bearer ' + TOKEN } });
+    assert.deepStrictEqual([g.headers.get('access-control-allow-origin'), g.headers.get('access-control-expose-headers')], ['capacitor://localhost', 'X-Version']);
+    step('the iPhone app may call it across origins; other sites may not');
+
     // ---- create, read, replace ----
     const a1 = '# 购物清单\n\n牛奶';
     let r = await call('PUT', '/v1/file' + q('笔记/购物清单.md'), { body: a1 });

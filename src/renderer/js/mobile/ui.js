@@ -6,6 +6,7 @@ import { t, toast, showMenu } from '../util.js';
 import { App } from '@capacitor/app';
 import { Keyboard } from '@capacitor/keyboard';
 import { Capacitor } from '@capacitor/core';
+import { syncText } from '../ui/settings.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const svg = (d, w = 22) => `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -167,7 +168,7 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
 
   // ---------- the library ----------
   const lib = el('div', '', `
-    <div class="m-lib-top"><span class="m-local">${esc(t('保存在本机', 'On this device'))}</span><button class="m-btn m-lib-settings">${I.gear}</button></div>
+    <div class="m-lib-top"><button class="m-local">${esc(t('保存在本机', 'On this device'))}</button><button class="m-btn m-lib-settings">${I.gear}</button></div>
     <h1>WhimFlow</h1>
     <label class="m-search">${I.search}<input type="search" placeholder="${esc(t('搜索所有文档', 'Search all documents'))}" enterkeyhint="search"></label>
     <div class="m-chips"><button data-view="recent" class="on">${t('最近', 'Recent')}</button><button data-view="folders">${t('文件夹', 'Folders')}</button></div>
@@ -408,7 +409,26 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
 
   // the app going to the background is the moment to save
   if (native) App.addListener('pause', () => { saveDirty(); }).catch(() => {});
-  document.addEventListener('visibilitychange', () => { if (document.hidden) saveDirty(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveDirty(); else M.syncNudge(); });
+  // coming back to the front is the moment to sync
+  if (native) App.addListener('resume', () => { M.syncNudge(); }).catch(() => {});
+
+  // ---------- sync: the chip at the top of the library says how it is going; a tap syncs now ----------
+  const chip = lib.querySelector('.m-local');
+  let syncState = { state: 'off' };
+  function showSync(st) {
+    syncState = st || { state: 'off' };
+    chip.textContent = syncState.state === 'off' ? t('保存在本机', 'On this device') : syncText(syncState);
+    chip.dataset.state = syncState.state;
+  }
+  chip.onclick = () => { if (syncState.state === 'off') ctx.settingsUI.open(); else api.syncNow(); };
+  api.onSyncStatus((st) => {
+    showSync(st);
+    if (st.changed && body.classList.contains('m-lib')) renderLibrary(); // what came in shows at once
+    const n = (st.conflicts || []).length;
+    if (n) toast(t(`${n} 篇文档在两台设备上都改过，两份都保留了`, `${n} document(s) changed on two devices; both versions kept`));
+  });
+  api.syncConfig().then((c) => showSync(c.status));
 
   layout();
   updateBar();

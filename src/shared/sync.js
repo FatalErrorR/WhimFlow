@@ -216,10 +216,90 @@ function createRemote({ url, token, fetch: f = globalThis.fetch }) {
   };
 }
 
+/** "whimflow.example.com" -> "https://whimflow.example.com"; plain http only for this computer. */
+function normalizeUrl(input) {
+  let s = String(input || '').trim().replace(/\/+$/, '');
+  if (!s) return null;
+  if (!/^[a-z]+:\/\//i.test(s)) s = 'https://' + s;
+  let u;
+  try { u = new URL(s); } catch (_) { return null; }
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
+  if (u.protocol !== 'https:' && !(u.protocol === 'http:' && local)) return null;
+  return u.origin + u.pathname.replace(/\/+$/, '');
+}
+
+/**
+ * When and how a device syncs, the same on the desktop and the iPhone: connect (the server checks
+ * the address and token first), a pass a moment after a local change, one every `every` ms, one on
+ * request; notify() hears { state: off|syncing|ok|offline|auth|error, at, changed, conflicts, message }.
+ * tokens: { get(), set(t), clear() } (may be async: the keychain);  getUrl/setUrl: the address setting.
+ */
+function createSyncController({ local, state, tokens, getUrl, setUrl, notify, device, fetch, hash, every = 60000, soonMs = 2000 }) {
+  let engine = null, status = { state: 'off' }, timer = null, soon = null, lastNudge = 0;
+  const setStatus = (s) => { status = { ...s, url: getUrl() || null }; notify(status); };
+  async function build() {
+    const url = getUrl(), token = url ? await tokens.get() : null;
+    clearInterval(timer); timer = null;
+    engine = url && token ? createSync({ local, remote: createRemote({ url, token, fetch }), state, device, hash }) : null;
+    if (engine) timer = setInterval(() => run(), every);
+    else setStatus({ state: 'off' });
+  }
+  async function run() {
+    const e = engine;
+    if (!e) return status;
+    if (!e.isRunning()) setStatus({ state: 'syncing', at: status.at });
+    try {
+      const r = await e.sync();
+      if (e !== engine) return status; // disconnected meanwhile
+      setStatus({
+        state: r.errors.length ? 'error' : 'ok', at: Date.now(),
+        changed: r.down.length + r.removedHere.length + r.conflicts.length > 0,
+        conflicts: r.conflicts.map((c) => c.copy || c.path),
+        message: r.errors.length ? `${r.errors[0].path}: ${r.errors[0].error}` : '',
+      });
+    } catch (err) {
+      if (e !== engine) return status;
+      setStatus({ state: ['offline', 'auth'].includes(err && err.code) ? err.code : 'error', at: status.at, message: String((err && err.message) || err) });
+    }
+    return status;
+  }
+  return {
+    status: () => ({ ...status, url: getUrl() || null }),
+    async start() { await build(); if (engine) run(); },
+    syncNow: () => run(),
+    /** Something in the library changed here: sync shortly (changes come in bursts). */
+    changed() { if (!engine) return; clearTimeout(soon); soon = setTimeout(run, soonMs); },
+    /** The app came to the front: sync, at most every 20 s. */
+    nudge() { if (engine && Date.now() - lastNudge > 20000) { lastNudge = Date.now(); run(); } },
+    async connect({ url, token }) {
+      const u = normalizeUrl(url), tk = String(token || '').trim();
+      if (!u) return { ok: false, error: 'url' };
+      if (!tk) return { ok: false, error: 'token' };
+      try { await createRemote({ url: u, token: tk, fetch }).ping(); }
+      catch (err) { return { ok: false, error: (err && err.code) || 'error', message: String((err && err.message) || err) }; }
+      if (getUrl() !== u) await state.clear(); // another server: merge from scratch, never delete
+      await tokens.set(tk);
+      await setUrl(u);
+      await build();
+      run();
+      return { ok: true, url: u };
+    },
+    /** Stop syncing; the files stay here and on the server. */
+    async disconnect() {
+      await tokens.clear();
+      await setUrl('');
+      await state.clear();
+      await build();
+      return { ok: true };
+    },
+    stop() { clearInterval(timer); clearTimeout(soon); },
+  };
+}
+
 /** Whether a library path is synced: nothing hidden, no temporary files, names the server accepts. */
 function syncable(p) {
   if (!p) return false;
   return p.split('/').every((s) => s && !s.startsWith('.') && !s.endsWith('.mftmp') && !/[\\\0]/.test(s) && new TextEncoder().encode(s).length <= 255);
 }
 
-module.exports = { createSync, createRemote, conflictName, syncable };
+module.exports = { createSync, createRemote, createSyncController, normalizeUrl, conflictName, syncable };

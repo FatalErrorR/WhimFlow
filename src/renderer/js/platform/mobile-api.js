@@ -6,6 +6,7 @@
 //   Library/drafts/       unsaved text, for crash recovery
 //   Library/history/      a snapshot per save
 //   Preferences           settings and the recent list
+//   Library/sync-state.json  what this phone and the sync server last agreed on; the token is in the Keychain
 //
 // The interface sees paths under a fixed root (/WhimFlow/...), never the app's container
 // path, which iOS may change between updates. The same safety rules as on the desktop:
@@ -15,7 +16,8 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { Share } from '@capacitor/share';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
+import { createSyncController, syncable } from '../../../shared/sync.js';
 import { platform } from '../paths.js';
 
 export const ROOT = '/WhimFlow';
@@ -28,7 +30,18 @@ const DEFAULTS = {
   closeBrackets: true, indent: 4, spellcheck: true, showInvisibles: false,
   imageFolder: './assets', imageRelative: true, imageCopy: true,
   drafts: true, history: true, historyKeep: 50, language: 'auto', lineBreaks: true,
+  syncUrl: '', // the sync server (set by connecting in Settings)
 };
+
+// the sync token is kept in the iOS Keychain (a small plugin in SceneDelegate.swift); in the browser
+// emulation used by the tests, in Preferences
+const Keychain = registerPlugin('Keychain', {
+  web: () => Promise.resolve({
+    async get({ key }) { return { value: (await Preferences.get({ key: 'keychain:' + key })).value }; },
+    async set({ key, value }) { await Preferences.set({ key: 'keychain:' + key, value }); },
+    async remove({ key }) { await Preferences.remove({ key: 'keychain:' + key }); },
+  }),
+});
 
 // ---------- paths ----------
 const rel = (p) => {
@@ -145,6 +158,7 @@ export function createMobileApi(hooks = {}) {
     settings.recent = settings.recent.map((p) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : p));
     await saveSettings();
     emit('renamed', { from, to });
+    changed();
     return to;
   }
   async function readTree(dir = ROOT, depth = 0) {
@@ -238,12 +252,116 @@ export function createMobileApi(hooks = {}) {
       let p = null;
       for (let i = 0; i < 10000 && !p; i++) { const c = join(dir, i ? `${base}-${i}.${ext}` : `${base}.${ext}`); if (!(await exists(c))) p = c; }
       await Filesystem.writeFile({ path: rel(p), directory: DOCS, data: btoa(bin), recursive: true });
+      changed();
       if (!docPath) return 'assets/' + encodeURIComponent(baseOf(p)); // shown relative to the library root
       const from = dirOf(docPath).split('/'), to = p.split('/');
       let i = 0; while (i < from.length && from[i] === to[i]) i++;
       return [...from.slice(i).map(() => '..'), ...to.slice(i)].map((s) => (s === '..' ? s : encodeURIComponent(s).replace(/[()]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()))).join('/');
     });
   }
+
+  // ----- sync with the WhimFlow server (src/shared/sync.js): the library, Documents/, is what syncs -----
+  const TEXT = /\.(md|markdown|mdown|mkd|mdx|txt)$/i;
+  const native = Capacitor.isNativePlatform();
+  const toB64 = (bytes) => { let b = ''; for (let i = 0; i < bytes.length; i += 0x8000) b += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(b); };
+  const fromB64 = (b64) => { const b = atob(b64), out = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i); return out; };
+  const shaBytes = async (bytes) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((x) => x.toString(16).padStart(2, '0')).join('');
+  // paths below are relative to the library ("工作/周报.md"). On the phone a file is read and written
+  // as its exact bytes; the browser emulation keeps text as text (its storage returns what it was given)
+  async function readBytes(r) {
+    if (!native && TEXT.test(r)) return new TextEncoder().encode((await Filesystem.readFile({ path: r, directory: DOCS, encoding: Encoding.UTF8 })).data);
+    const d = (await Filesystem.readFile({ path: r, directory: DOCS })).data;
+    return typeof d === 'string' ? fromB64(d) : new Uint8Array(await d.arrayBuffer());
+  }
+  async function writeBytes(r, bytes) {
+    const asText = !native && TEXT.test(r);
+    const tmp = r + '.mftmp'; // as safeWrite: a whole copy first; finishTemps() completes an interrupted one
+    await Filesystem.writeFile({ path: tmp, directory: DOCS, recursive: true, ...(asText ? { data: new TextDecoder().decode(bytes), encoding: Encoding.UTF8 } : { data: toB64(bytes) }) });
+    if (await Filesystem.stat({ path: r, directory: DOCS }).then(() => true, () => false)) await Filesystem.deleteFile({ path: r, directory: DOCS });
+    await Filesystem.rename({ from: tmp, to: r, directory: DOCS, toDirectory: DOCS });
+  }
+  async function intoTrash(r) {
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    await Filesystem.mkdir({ path: '.Trash', directory: DOCS, recursive: true }).catch(() => {});
+    await Filesystem.rename({ from: r, to: `.Trash/${stamp}-${Math.random().toString(36).slice(2, 6)}-${baseOf(r)}`, directory: DOCS, toDirectory: DOCS });
+  }
+  const vcache = new Map(); // relative path -> { mtime, size, v }: a file is only hashed again once it changed
+  async function versionAt(r) {
+    let st;
+    try { st = await Filesystem.stat({ path: r, directory: DOCS }); } catch (_) { return null; }
+    if (st.type === 'directory') return undefined;
+    const c = vcache.get(r);
+    if (c && c.mtime === +st.mtime && c.size === +st.size) return c.v;
+    const v = await shaBytes(await readBytes(r));
+    vcache.set(r, { mtime: +st.mtime, size: +st.size, v });
+    return v;
+  }
+  const syncLocal = {
+    async list() {
+      const files = {}, dirs = [];
+      async function walk(dir) {
+        let ents;
+        try { ents = (await Filesystem.readdir({ path: dir, directory: DOCS })).files; } catch (_) { return; }
+        for (const e of ents) {
+          const r = (dir ? dir + '/' : '') + e.name.normalize('NFC');
+          if (!syncable(r)) continue;
+          if (e.type === 'directory') { dirs.push(r); await walk(r); }
+          else { const v = await versionAt(r); if (v) files[r] = { v }; }
+        }
+      }
+      await walk('');
+      return { files, dirs };
+    },
+    read: readBytes,
+    // through the same queue as the app's own saves, and only over the version the sync saw
+    write: (r, bytes, expected) => serial(join(ROOT, r), async () => {
+      const cur = await versionAt(r);
+      if (cur === undefined || cur !== expected) return false;
+      await writeBytes(r, bytes);
+      vcache.delete(r);
+      const p = join(ROOT, r);
+      if (TEXT.test(r) && hasDoc(p)) { const content = new TextDecoder().decode(bytes); emit('file-changed', { filePath: p, content, version: await hash(content) }); }
+      return true;
+    }),
+    trash: (r, expected) => serial(join(ROOT, r), async () => {
+      if ((await versionAt(r)) !== expected) return false;
+      await intoTrash(r);
+      vcache.delete(r);
+      const p = join(ROOT, r);
+      settings.recent = settings.recent.filter((x) => x !== p);
+      await saveSettings();
+      return true;
+    }),
+    mkdir: (r) => Filesystem.mkdir({ path: r, directory: DOCS, recursive: true }).catch(() => {}),
+    /** Only a folder with nothing synced left; hidden leftovers go to the trash with it, never erased. */
+    async rmdir(r) {
+      let ents;
+      try { ents = (await Filesystem.readdir({ path: r, directory: DOCS })).files; } catch (_) { return true; }
+      if (ents.some((e) => !e.name.startsWith('.'))) return false;
+      if (!ents.length) await Filesystem.rmdir({ path: r, directory: DOCS }); else await intoTrash(r);
+      return true;
+    },
+  };
+  const syncCtl = createSyncController({
+    local: syncLocal,
+    state: {
+      async load() { try { return JSON.parse(await libRead('sync-state.json')); } catch (_) { return null; } },
+      save: (st) => libWrite('sync-state.json', JSON.stringify(st)),
+      clear: () => libDelete('sync-state.json'),
+    },
+    tokens: {
+      get: async () => (await Keychain.get({ key: 'syncToken' })).value || null,
+      set: (value) => Keychain.set({ key: 'syncToken', value }),
+      clear: () => Keychain.remove({ key: 'syncToken' }),
+    },
+    getUrl: () => settings.syncUrl,
+    setUrl: async (u) => { settings.syncUrl = u; await saveSettings(); },
+    notify: (st) => emit('sync-status', st),
+    device: /iPad/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) ? 'iPad' : 'iPhone',
+    fetch: (...a) => fetch(...a),
+    hash: shaBytes,
+  });
+  const changed = () => syncCtl.changed();
 
   const api = {
     async init() {
@@ -254,6 +372,7 @@ export function createMobileApi(hooks = {}) {
       return { settings: { ...settings }, folder: ROOT, zh, isMac: true, platform: 'ios', home: ROOT, mobile: true };
     },
     async ready() {
+      syncCtl.start();
       // drafts left by an earlier run come back as unsaved documents; the draft file
       // goes only once the window has its text (see recovered)
       if (!settings.drafts) return;
@@ -310,6 +429,7 @@ export function createMobileApi(hooks = {}) {
         return { ok: true, filePath: p, version };
       });
       if (result && result.ok && p !== filePath) await addRecent(p);
+      if (result && result.ok && !result.skipped) changed();
       return result;
     },
     async readDoc(p) { if (!hasDoc(p)) return null; try { const content = await read(p); return { content, version: await hash(content) }; } catch (_) { return null; } },
@@ -323,6 +443,7 @@ export function createMobileApi(hooks = {}) {
       if (await exists(p)) return null;
       if (isDir) await Filesystem.mkdir({ path: rel(p), directory: DOCS, recursive: true });
       else await write(p, '');
+      changed();
       return p;
     },
     async rename({ from, name }) {
@@ -339,12 +460,11 @@ export function createMobileApi(hooks = {}) {
     async trash(p) {
       const ok = await (hooks.confirm ? hooks.confirm(t(`将 “${baseOf(p)}” 移到「最近删除」？`, `Move “${baseOf(p)}” to Recently Deleted?`)) : true);
       if (!ok) return { ok: false, canceled: true };
-      const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
       try {
-        await Filesystem.mkdir({ path: '.Trash', directory: DOCS, recursive: true }).catch(() => {});
-        await Filesystem.rename({ from: rel(p), to: `.Trash/${stamp}-${baseOf(p)}`, directory: DOCS, toDirectory: DOCS });
+        await intoTrash(rel(p));
         settings.recent = settings.recent.filter((x) => x !== p && !x.startsWith(p + '/'));
         await saveSettings();
+        changed();
         return { ok: true };
       } catch (err) { return { ok: false, error: String(err.message || err) }; }
     },
@@ -377,7 +497,7 @@ export function createMobileApi(hooks = {}) {
       return { path: name, note: null };
     },
     async setSetting(k, v) {
-      if (!(k in DEFAULTS) || ['recent', 'lastFolder'].includes(k) || typeof v !== typeof DEFAULTS[k]) return;
+      if (!(k in DEFAULTS) || ['recent', 'lastFolder', 'syncUrl'].includes(k) || typeof v !== typeof DEFAULTS[k]) return;
       settings[k] = v;
       await saveSettings();
       emit('setting', k, v);
@@ -388,12 +508,17 @@ export function createMobileApi(hooks = {}) {
     reply() {},
     copyText: (s) => { navigator.clipboard && navigator.clipboard.writeText(String(s)).catch(() => {}); },
     pathForFile: () => null,
+    syncConfig: async () => ({ url: settings.syncUrl || '', library: ROOT, status: syncCtl.status() }),
+    syncConnect: (req) => syncCtl.connect(req || {}),
+    syncDisconnect: () => syncCtl.disconnect(),
+    syncNow: () => syncCtl.syncNow(),
+    onSyncStatus: on('sync-status'),
     onCmd: on('cmd'), onLoad: on('load'), onFolder: on('folder'), onSetting: on('setting'), onFileChanged: on('file-changed'),
     onRenamed: on('renamed'), onTreeAction: on('tree-action'), onJump: on('jump'), onShowDoc: on('show-doc'), onFullscreen: on('fullscreen'),
     // for the mobile interface
     mobile: { ROOT, readTree, recent: () => settings.recent.slice(), read, exists, stat: (p) => Filesystem.stat({ path: rel(p), directory: DOCS }), titleOf, emit,
       writeFile: (p, text) => write(p, String(text)), // a plain write into the library (imports; tests acting as another device)
-      hash },
+      hash, syncNudge: () => syncCtl.nudge(), syncLocal },
   };
 
   // images in the documents are shown through the app's own file URL

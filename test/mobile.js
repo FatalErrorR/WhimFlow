@@ -6,6 +6,8 @@ const { chromium, devices } = require('playwright');
 const http = require('http');
 const path = require('path'), fs = require('fs'), os = require('os');
 const assert = require('assert');
+const { spawn } = require('child_process');
+const crypto = require('crypto');
 const root = path.join(__dirname, '..');
 const www = path.join(root, 'mobile/www');
 const shots = process.env.SHOTS || path.join(os.tmpdir(), 'whimflow-shots');
@@ -228,6 +230,73 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   assert(!(await exists('/WhimFlow/半途.md.mftmp')), 'and its temporary file is gone');
   await page.close();
   step('a save interrupted halfway is completed at the next start');
+
+  // ---------- sync with a WhimFlow server (a real one, on this computer), on a fresh iPhone ----------
+  const TOKEN = crypto.randomBytes(24).toString('hex');
+  const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'whimflow-mobile-sync-'));
+  const syncProc = spawn(process.execPath, [path.join(root, 'sync-server/server.js')], {
+    env: { ...process.env, DATA: data, WHIMFLOW_TOKEN: TOKEN, PORT: '0', HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  const syncUrl = await new Promise((resolve) => syncProc.stdout.on('data', (d) => { const m = /on 127\.0\.0\.1:(\d+)/.exec(String(d)); if (m) resolve(`http://127.0.0.1:${m[1]}`); }));
+  const onServer = (rel) => (fs.existsSync(path.join(data, ...rel.split('/'))) ? fs.readFileSync(path.join(data, ...rel.split('/'))) : null);
+  const until = async (fn, what, ms = 10000) => { for (let i = 0; i < ms / 100; i++) { if (await fn()) return; await sleep(100); } throw new Error('timed out waiting for: ' + what); };
+  const otherDevice = (rel, body, headers) => fetch(syncUrl + '/v1/file?path=' + encodeURIComponent(rel), { method: 'PUT', body, headers: { Authorization: 'Bearer ' + TOKEN, ...headers } });
+  try {
+    const iphone2 = await browser.newContext({ ...devices['iPhone 15'], locale: 'zh-CN' });
+    page = await iphone2.newPage();
+    page.on('pageerror', (e) => { errors.push(e.message); console.log('[pageerror]', e.message); });
+    await boot();
+    await W(() => window.api.mobile.writeFile('/WhimFlow/手机笔记.md', '# 手机笔记\n\n在 iPhone 上写的'));
+    assert.strictEqual(await page.locator('#m-lib .m-local').innerText(), '保存在本机', 'not connected yet');
+    await page.locator('#m-lib .m-local').tap(); // not connected: the chip opens Settings
+    await page.waitForSelector('#settings:not([hidden]) input[type="password"]');
+    await page.locator('#settings input[type="text"]').first().fill(syncUrl);
+    await page.locator('#settings input[type="password"]').fill(TOKEN);
+    await page.locator('#settings .set-btn.primary').tap();
+    await page.waitForSelector('#settings .sync-state', { timeout: 10000 });
+    await until(() => onServer('手机笔记.md'), 'the phone\'s document reaches the server');
+    assert.strictEqual(onServer('手机笔记.md').toString(), '# 手机笔记\n\n在 iPhone 上写的');
+    await page.screenshot({ path: path.join(shots, 'm6-sync-settings.png') });
+    await page.locator('#settings .set-close').tap();
+    await until(async () => /已同步/.test(await page.locator('#m-lib .m-local').innerText()), 'the chip says synced');
+    assert.strictEqual(await W(async () => (await window.api.syncConfig()).url), syncUrl);
+    step('sync: connect in Settings (the chip opens it); the phone\'s documents go up; the chip says "已同步"');
+
+    // what another device put on the server comes down: a document and an image, byte for byte
+    const png = crypto.randomBytes(5000);
+    assert.strictEqual((await otherDevice('电脑上写的.md', '# 电脑上写的\n', { 'If-None-Match': '*' })).status, 200);
+    assert.strictEqual((await otherDevice('assets/图.png', png, { 'If-None-Match': '*' })).status, 200);
+    await page.locator('#m-lib .m-local').tap(); // connected: a tap syncs now
+    await page.locator('#m-lib .m-chips button[data-view="folders"]').tap();
+    await until(async () => (await page.locator('#m-lib .m-doc', { hasText: '电脑上写的' }).count()) === 1, 'the new document shows in the library');
+    const listed = await W(() => window.api.mobile.syncLocal.list());
+    assert.strictEqual(listed.files['assets/图.png'] && listed.files['assets/图.png'].v, sha(png), 'the image arrived unchanged');
+    await page.screenshot({ path: path.join(shots, 'm7-sync-library.png') });
+    step('a document and an image from another device come down; the library shows them');
+
+    // an open document follows a change made elsewhere; an edit here goes up
+    await page.locator('#m-lib .m-doc', { hasText: '手机笔记' }).tap();
+    await page.waitForFunction(() => !document.body.classList.contains('m-lib'));
+    const before = onServer('手机笔记.md');
+    assert.strictEqual((await otherDevice('手机笔记.md', '# 手机笔记\n\n电脑改过了', { 'If-Match': sha(before) })).status, 200);
+    await W(() => window.api.syncNow());
+    await page.waitForFunction(() => window.__whimflow.editor.getValue() === '# 手机笔记\n\n电脑改过了', null, { timeout: 8000 });
+    await W(() => { const v = window.__whimflow.editor.view; v.dispatch({ selection: { anchor: v.state.doc.length } }); v.focus(); });
+    await page.keyboard.type('，手机又补了一句');
+    await page.locator('#m-bar .m-back').tap();
+    await until(() => /手机又补了一句/.test(String(onServer('手机笔记.md'))), 'the edit reaches the server', 15000);
+    assert(!fs.readdirSync(data).some((n) => /冲突/.test(n)), 'no conflict copies: nothing was lost or doubled');
+    step('the open document follows a change from another device; an edit here goes up');
+
+    assert.strictEqual(await W(async () => (await window.Capacitor.Plugins.Preferences.get({ key: 'keychain:syncToken' })).value), TOKEN, 'the token is in the (emulated) Keychain');
+    assert(!(await W(async () => (await window.Capacitor.Plugins.Preferences.get({ key: 'settings' })).value)).includes(TOKEN), 'and not in the settings');
+    await page.close();
+    step('the token is kept in the Keychain, not in the settings');
+  } finally {
+    syncProc.kill();
+    fs.rmSync(data, { recursive: true, force: true });
+  }
 
   // ---------- iPad (landscape): the desktop islands ----------
   const ipad = await browser.newContext({ ...devices['iPad Pro 11 landscape'], locale: 'zh-CN' });

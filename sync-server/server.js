@@ -16,7 +16,9 @@
 // write without a precondition is refused too (428). Writing the bytes a file already has
 // always succeeds, so a retried request is harmless.
 //
-// Every request needs "Authorization: Bearer <WHIMFLOW_TOKEN>".
+// Every request needs "Authorization: Bearer <WHIMFLOW_TOKEN>". Pages may call it from the
+// iPhone app (capacitor://localhost) and from this computer (localhost, for tests); more origins
+// can be added in CORS_ORIGINS (comma separated). No cookies are involved: the token is the key.
 const http = require('http');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -30,6 +32,8 @@ const PORT = +process.env.PORT || 8787;
 const HOST = process.env.HOST || '0.0.0.0';
 const MAX_BODY = +process.env.MAX_BODY || 50 * 1024 * 1024;
 const TRASH = path.join(DATA, '.trash');
+const ORIGINS = new Set(['capacitor://localhost', ...String(process.env.CORS_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean)]);
+const allowedOrigin = (o) => !!o && (ORIGINS.has(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o));
 
 if (TOKEN.length < 32) { console.error('WHIMFLOW_TOKEN must be set (32 characters or more)'); process.exit(1); }
 
@@ -119,6 +123,15 @@ const fail = (status, error, extra) => Object.assign(new Error(error), { status,
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
+  if (allowedOrigin(req.headers.origin)) {
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+    res.setHeader('Access-Control-Expose-Headers', 'X-Version');
+    res.setHeader('Vary', 'Origin');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, PUT, DELETE', 'Access-Control-Allow-Headers': 'Authorization, If-Match, If-None-Match, Content-Type', 'Access-Control-Max-Age': '86400' });
+      return res.end();
+    }
+  }
   const send = (status, obj, headers = {}) => { const b = Buffer.from(JSON.stringify(obj)); res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': b.length, ...headers }); res.end(b); };
   if (!authorized(req)) return send(401, { error: 'unauthorized' });
   const route = req.method + ' ' + url.pathname;
