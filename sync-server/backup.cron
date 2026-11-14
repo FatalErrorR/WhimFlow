@@ -1,0 +1,2 @@
+# /etc/cron.d/whimflow-sync: a copy of the library every night, kept 14 days
+30 3 * * * root tar -czf /opt/whimflow-sync/backups/data-$(date +\%F).tgz -C /opt/whimflow-sync data && find /opt/whimflow-sync/backups -name 'data-*.tgz' -mtime +14 -delete

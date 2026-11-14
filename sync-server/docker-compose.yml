@@ -1,0 +1,18 @@
+# WhimFlow sync server. Its own project, container, port and folder; nothing shared with
+# other services on the host. The token is in .env (WHIMFLOW_TOKEN=..., chmod 600).
+name: whimflow-sync
+services:
+  sync:
+    build: .
+    image: whimflow-sync:local
+    container_name: whimflow-sync
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data            # the library; owned by uid 1000 (the image's "node" user)
+    ports:
+      - "127.0.0.1:8790:8787"   # only nginx on this host reaches it
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }

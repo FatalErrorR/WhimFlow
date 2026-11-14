@@ -17,3 +17,6 @@ mobile/ios/App/App/public/
 mobile/ios/App/App/capacitor.config.json
 mobile/ios/App/App/config.xml
 __pycache__/
+sync-server/data/
+sync-server/.env
+sync-server/backups/
