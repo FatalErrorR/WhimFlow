@@ -9,7 +9,7 @@
   </p>
 </div>
 
-![WhimFlow editor](assets/editor.png)
+![WhimFlow editor with live final view](assets/showcase.png)
 
 WhimFlow is a desktop Markdown editor built with Electron and CodeMirror 6. It keeps writing, structure, and rendered output close together so you can focus on the document instead of the tooling around it.
 
@@ -25,9 +25,9 @@ WhimFlow is a desktop Markdown editor built with Electron and CodeMirror 6. It k
 
 ## Preview
 
-The final view can sit beside the editor while you write:
+The final view can sit beside the editor while you write, and the document structure can open as a mind map when you need a wider view:
 
-![WhimFlow final view](assets/preview.png)
+![WhimFlow mind map](assets/mindmap.png)
 
 ## Download
 
