@@ -1,0 +1,53 @@
+'use strict';
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
+
+const inv = (ch) => (...a) => ipcRenderer.invoke(ch, ...a);
+// listeners are called for their effect only: return values never cross the bridge
+const on = (ch) => (fn) => ipcRenderer.on(ch, (_e, ...a) => { fn(...a); });
+
+contextBridge.exposeInMainWorld('api', {
+  init: inv('init'),
+  ready: inv('ready'),
+  ensureWidth: inv('ensure-width'),
+  openFolderDialog: inv('open-folder-dialog'),
+  syncDocs: inv('docs'),
+  confirmCloseDoc: inv('confirm-close-doc'),
+  closeWindow: inv('close-window'),
+  setTitle: inv('set-title'),
+  save: inv('save'),
+  openInWindow: inv('open-in-window'),
+  openPath: inv('open-path'),
+  readTree: inv('read-tree'),
+  openExternal: inv('open-external'),
+  reveal: inv('reveal'),
+  trash: inv('trash'),
+  createFile: inv('create-file'),
+  rename: inv('rename'),
+  saveImage: inv('save-image'),
+  imageFile: inv('image-file'),
+  revealUrl: inv('reveal-url'),
+  draft: inv('draft'),
+  readDoc: inv('read-doc'),
+  clearDrafts: inv('drafts-clear'),
+  recovered: inv('recovered'),
+  historyList: inv('history-list'),
+  historyRead: inv('history-read'),
+  search: inv('search'),
+  pickImage: inv('pick-image'),
+  exportDoc: inv('export'),
+  setSetting: inv('set-setting'),
+  treeMenu: inv('tree-menu'),
+  reply: (ch, v) => ipcRenderer.send(ch, v),
+  copyText: (s) => { ipcRenderer.send('copy-text', String(s)); }, // the clipboard module is not available to a sandboxed preload
+  pathForFile: (f) => webUtils.getPathForFile(f),
+  onCmd: on('cmd'),
+  onLoad: on('load'),
+  onFolder: on('folder'),
+  onSetting: on('setting'),
+  onFileChanged: on('file-changed'),
+  onRenamed: on('renamed'),
+  onTreeAction: on('tree-action'),
+  onJump: on('jump'),
+  onShowDoc: on('show-doc'),
+  onFullscreen: on('fullscreen'),
+});

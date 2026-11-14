@@ -1,0 +1,129 @@
+{
+  "name": "whimflow",
+  "productName": "WhimFlow",
+  "version": "1.0.0",
+  "description": "A calm, live-preview Markdown workspace for thinking, drafting, and organizing ideas.",
+  "main": "src/main.js",
+  "author": "FatalErrorR",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "start": "npm run build && electron .",
+    "test": "npm run build && node test/unit.js && node test/smoke.js && node test/features.js && node test/docs.js && node test/code.js && node test/preview.js && node test/layout.js && node test/safety.js",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "test:unit": "node test/unit.js"
+  },
+  "dependencies": {
+    "html-to-docx": "^1.8.0",
+    "katex": "^0.19.1",
+    "mermaid": "^12.3.0"
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "^6.20.4",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/source-serif-4": "^5.3.1",
+    "@lezer/highlight": "^1.2.5",
+    "@lezer/markdown": "^1.8.1",
+    "diff": "^9.0.0",
+    "dompurify": "^3.4.17",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "highlight.js": "^11.12.0",
+    "markdown-it": "^15.0.3",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-mark": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "playwright": "1.63.0"
+  },
+  "build": {
+    "appId": "app.whimflow.editor",
+    "productName": "WhimFlow",
+    "copyright": "Copyright © 2026 FatalErrorR",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "!src/renderer/js/**/*",
+      "docs/**/*",
+      "package.json",
+      "node_modules/katex/dist/katex.min.css",
+      "node_modules/katex/dist/fonts/**/*",
+      "node_modules/mermaid/dist/mermaid.min.js"
+    ],
+    "asar": true,
+    "fileAssociations": [
+      {
+        "ext": [
+          "md",
+          "markdown",
+          "mdown",
+          "mkd",
+          "mdx"
+        ],
+        "name": "Markdown Document",
+        "role": "Editor",
+        "rank": "Default"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "darkModeSupport": true,
+      "identity": null,
+      "extendInfo": {
+        "NSRequiresAquaSystemAppearance": false
+      }
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "electronLanguages": [
+      "en",
+      "zh_CN",
+      "zh_TW"
+    ]
+  },
+  "copyright": "Copyright © 2026 FatalErrorR"
+}

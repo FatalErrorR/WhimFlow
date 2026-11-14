@@ -1,0 +1,129 @@
+/* Themes + typography for rendered documents (.doc): the final view, print,
+   HTML/PDF export, and blocks rendered inside the editor (tables, diagrams).
+   Warm, quiet palette: ivory paper, soft ink, a single clay accent. */
+:root, [data-theme="daylight"] {
+  --bg: #faf9f5; --fg: #2b2a27; --muted: #87867f; --border: #e8e6dc; --accent: #c96442;
+  --code-bg: #f0eee6; --side-bg: #f4f3ee; --hover: rgba(60,50,30,.06); --sel: #ecd9cc; --mark: #f6e3a8;
+  color-scheme: light;
+}
+[data-theme="paper"] {
+  --bg: #f5efe2; --fg: #3a342b; --muted: #948a79; --border: #e2d9c6; --accent: #a8562c;
+  --code-bg: #ebe4d3; --side-bg: #efe8d9; --hover: rgba(70,50,20,.07); --sel: #e6d3b0; --mark: #f1d98c;
+}
+[data-theme="mint"] {
+  --bg: #f7f8f3; --fg: #2c302a; --muted: #858c80; --border: #e2e5da; --accent: #5f7d5a;
+  --code-bg: #ecefe5; --side-bg: #f1f3ec; --hover: rgba(40,60,30,.06); --sel: #d6e2cf; --mark: #e6ecb0;
+}
+[data-theme="slate"] {
+  --bg: #262624; --fg: #e3e1d7; --muted: #9c9a92; --border: #3b3a36; --accent: #d97757;
+  --code-bg: #1a1918; --side-bg: #1f1e1d; --hover: rgba(255,250,235,.07); --sel: #5a4337; --mark: #6b5a26;
+  color-scheme: dark;
+}
+[data-theme="midnight"] {
+  --bg: #1a1918; --fg: #cfcdc4; --muted: #84827a; --border: #2e2d2a; --accent: #d97757;
+  --code-bg: #232220; --side-bg: #141413; --hover: rgba(255,250,235,.06); --sel: #4d3a30; --mark: #5c4c20;
+  color-scheme: dark;
+}
+
+/* Typefaces. Anthropic's own faces are listed first and are used when installed
+   on this machine; they are licensed and not shipped. The bundled open-licensed
+   stand-ins follow. Latin sets in a book serif; CJK falls through to the system. */
+:root, [data-theme] {
+  --serif-font: "Anthropic Serif", "Tiempos Text", "Tiempos Headline", "Source Serif 4", "Iowan Old Style", Georgia, "Songti SC", "Noto Serif CJK SC", serif;
+  --ui-font: "Anthropic Sans", "Styrene B", "Styrene A", "DM Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --mono-font: "Anthropic Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  --doc-font: "Anthropic Serif", "Tiempos Text", "Source Serif 4", "Iowan Old Style", Georgia, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --heading-font: var(--serif-font);
+}
+[data-theme="paper"] { --doc-font: var(--serif-font); }
+
+/* Code colours, shared by the editor, the final view and exports. */
+:root {
+  --tok-keyword: #a8452a; --tok-string: #4f7a4a; --tok-comment: #9a968a; --tok-number: #a8691a;
+  --tok-title: #3f6a94; --tok-attr: #7a5a94; --tok-type: #2f7d78; --tok-meta: #87867f; --tok-deletion: #b0443a;
+}
+[data-theme="slate"], [data-theme="midnight"] {
+  --tok-keyword: #e08a6d; --tok-string: #a3c293; --tok-comment: #7d7b73; --tok-number: #d9a85c;
+  --tok-title: #8fb4d9; --tok-attr: #c3a6d4; --tok-type: #7fc4bd; --tok-meta: #9c9a92; --tok-deletion: #e08079;
+}
+
+.doc {
+  font-family: var(--doc-font); font-size: calc(var(--doc-size, 16px) * var(--zoom, 1)); line-height: var(--line-height, 1.7);
+  color: var(--fg); word-wrap: break-word; -webkit-font-smoothing: antialiased;
+}
+.doc > :first-child { margin-top: 0; }
+.doc h1, .doc h2, .doc h3, .doc h4, .doc h5, .doc h6 {
+  font-family: var(--heading-font); font-weight: 600; line-height: 1.3; letter-spacing: -.01em; margin: 1.25em 0 .4em;
+}
+.doc h1 { font-size: 1.9em; font-weight: 500; }
+.doc h1::after { content: ""; display: block; width: 44px; height: 2px; margin-top: .5em; border-radius: 2px; background: var(--accent); opacity: .85; }
+.doc h2 { font-size: 1.42em; }
+.doc h3 { font-size: 1.2em; }
+.doc h4 { font-size: 1.08em; }
+.doc h5 { font-size: 1em; }
+.doc h6 { font-size: 1em; color: var(--muted); }
+.doc p, .doc ul, .doc ol, .doc blockquote, .doc table, .doc pre, .doc dl, .doc details, .doc .mermaid-block, .doc .katex-display { margin: 0 0 .8em; }
+.doc a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); text-underline-offset: 3px; }
+.doc a:hover { text-decoration-color: var(--accent); }
+.doc strong { font-weight: 700; }
+.doc mark { background: var(--mark); color: inherit; padding: 0 .15em; border-radius: 2px; }
+.doc hr { border: 0; height: 1.4em; margin: 1.6em 0; text-align: center; overflow: visible; background: none; }
+.doc hr::after { content: "·  ·  ·"; white-space: pre; color: var(--muted); font-size: 1.1em; letter-spacing: .1em; }
+.doc blockquote { padding: .1em 1em; margin-left: 0; color: var(--muted); font-style: italic; font-synthesis-style: none; border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.doc blockquote strong, .doc blockquote code { font-style: normal; }
+.doc blockquote > :last-child { margin-bottom: 0; }
+.doc ul, .doc ol { padding-left: 1.8em; }
+.doc li + li { margin-top: .2em; }
+.doc li > ul, .doc li > ol { margin-bottom: 0; }
+.doc ::marker { color: var(--muted); }
+.doc .task-list-item { list-style: none; position: relative; }
+.doc .task-list-item > input { position: absolute; left: -1.5em; top: .45em; margin: 0; accent-color: var(--accent); }
+.doc code { font-family: var(--mono-font); font-size: .86em; padding: .15em .4em; border-radius: 4px; background: var(--code-bg); }
+.doc pre { position: relative; border-radius: 10px; background: var(--code-bg); overflow: hidden; }
+.doc pre > code { display: block; padding: 1em 1.2em; background: none; border-radius: 0; overflow-x: auto; white-space: pre; line-height: 1.55; tab-size: 4; font-size: .84em; }
+.doc pre[data-lang]::after { content: attr(data-lang); position: absolute; top: 9px; right: 13px; font: 10.5px var(--mono-font); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); opacity: .75; }
+.doc pre[data-title]::before { content: attr(data-title); display: block; padding: .6em 1.2em .55em; font: .76em var(--mono-font); color: var(--fg); opacity: .8; box-shadow: inset 0 -1px 0 var(--border); }
+.doc pre > code.has-lines { padding-left: 0; padding-right: 0; }
+.doc pre .lines { display: inline-block; min-width: 100%; }
+.doc pre .line { display: block; padding: 0 1.2em; }
+.doc pre .line.hl { background: color-mix(in srgb, var(--accent) 11%, transparent); box-shadow: inset 2px 0 0 var(--accent); }
+.doc pre .line.add { background: color-mix(in srgb, var(--tok-string) 14%, transparent); }
+.doc pre .line.del { background: color-mix(in srgb, var(--tok-deletion) 12%, transparent); }
+.doc pre .line.hunk, .doc pre .line.meta { color: var(--muted); }
+.doc table { border-collapse: collapse; max-width: 100%; display: block; overflow-x: auto; }
+.doc th, .doc td { border-bottom: 1px solid var(--border); padding: .38em 1em .38em 0; text-align: left; vertical-align: top; }
+.doc th { color: var(--muted); font-size: .82em; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; border-bottom-color: color-mix(in srgb, var(--fg) 55%, transparent); }
+.doc img { max-width: 100%; border-radius: 6px; }
+.doc kbd { font-family: var(--mono-font); font-size: .8em; padding: .1em .45em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--code-bg); }
+.doc .toc { padding: .3em 0 .3em 1em; border-left: 1px solid var(--border); margin: 0 0 1.2em; }
+.doc .toc ul { list-style: none; margin: 0; padding-left: 1.1em; }
+.doc .toc > ul { padding-left: 0; }
+.doc .toc a { color: var(--muted); text-decoration: none; }
+.doc .toc a:hover { color: var(--accent); }
+.doc .footnotes { font-size: .88em; color: var(--muted); }
+.doc .footnotes-sep { margin: 2em 0 1em; }
+.doc sup, .doc .footnote-ref a { color: var(--accent); }
+.doc .katex-display { overflow-x: auto; overflow-y: hidden; padding: .2em 0; }
+.doc .mermaid-block { display: flex; justify-content: center; }
+.doc .mermaid-block svg { max-width: 100%; height: auto; }
+.doc .render-error { color: var(--tok-deletion); font: .8em var(--mono-font); white-space: pre-wrap; }
+
+/* code tokens (highlight.js classes, used by the final view and exports) */
+.doc .hljs-keyword, .doc .hljs-selector-tag, .doc .hljs-tag .hljs-name { color: var(--tok-keyword); }
+.doc .hljs-string, .doc .hljs-regexp, .doc .hljs-char, .doc .hljs-link, .doc .hljs-addition { color: var(--tok-string); }
+.doc .hljs-comment, .doc .hljs-quote, .doc .hljs-doctag { color: var(--tok-comment); font-style: italic; }
+.doc .hljs-number, .doc .hljs-literal, .doc .hljs-symbol, .doc .hljs-bullet { color: var(--tok-number); }
+.doc .hljs-title, .doc .hljs-section, .doc .hljs-selector-id, .doc .hljs-selector-class { color: var(--tok-title); }
+.doc .hljs-attr, .doc .hljs-attribute, .doc .hljs-property, .doc .hljs-variable, .doc .hljs-template-variable { color: var(--tok-attr); }
+.doc .hljs-type, .doc .hljs-built_in, .doc .hljs-class, .doc .hljs-selector-attr, .doc .hljs-selector-pseudo { color: var(--tok-type); }
+.doc .hljs-meta, .doc .hljs-punctuation, .doc .hljs-operator { color: var(--tok-meta); }
+.doc .hljs-deletion { color: var(--tok-deletion); }
+
+:lang(zh) .doc th { letter-spacing: 0; }
+
+/* typography for rendered documents (same rules as the editor) */
+.doc { text-autospace: normal; text-spacing-trim: trim-start; line-break: strict; font-kerning: normal; }
+.doc p, .doc li { text-wrap: pretty; }
+.doc h1, .doc h2, .doc h3, .doc h4 { text-wrap: balance; }
+.doc pre, .doc code, .doc kbd { text-autospace: no-autospace; }
+.doc li > p { margin-bottom: .3em; }
