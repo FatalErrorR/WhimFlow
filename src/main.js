@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, clipboard, safeStorage, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -11,6 +11,7 @@ const images = require('./main/images');
 const exporter = require('./main/exporter');
 const fileops = require('./main/fileops');
 const { createSearch } = require('./main/search');
+const { createDesktopSync } = require('./main/sync-desktop');
 const IMG_EXT = images.IMG;
 
 // End-to-end tests (WHIMFLOW_TEST=1 only) reach in here to slow an IPC call down,
@@ -30,6 +31,11 @@ function ask(win, kind, opts) {
   return dialog.showMessageBox(win, opts);
 }
 const search = createSearch({ timeout: () => (testHooks && testHooks.searchTimeout) || undefined });
+// saves and sync writes to one file never interleave
+const saveQueue = fileops.keyedQueue();
+let deskSync = null; // set up once the app is ready (see the end)
+/** A file in the library changed here: the sync goes a moment later. */
+const libraryChanged = (p) => { if (deskSync && p && fileops.isUnder(p, deskSync.library)) deskSync.changed(); };
 
 // ---------- the app's own folder (it was "MarkFlow" before: see main/migrate.js) ----------
 try {
@@ -45,9 +51,10 @@ const DEFAULTS = {
   imageFolder: './assets', imageRelative: true, imageCopy: true,
   drafts: true, history: true, historyKeep: 50, language: 'auto',
   lineBreaks: true, // a single line break shows as one in the final view and exports (strict CommonMark: off)
+  syncUrl: '', // the sync server; set by connecting in Settings (the token is in the keychain)
 };
 // Settings the renderer may change, and that every window is told about.
-const SHARED = Object.keys(DEFAULTS).filter((k) => !['recent', 'lastFolder'].includes(k));
+const SHARED = Object.keys(DEFAULTS).filter((k) => !['recent', 'lastFolder', 'syncUrl'].includes(k));
 let settings = { ...DEFAULTS };
 const shared = () => Object.fromEntries(SHARED.map((k) => [k, settings[k]]));
 const recovery = require('./main/recovery')(app);
@@ -100,7 +107,7 @@ function createWindow(opts = {}) {
   // docs/activeId mirror what the renderer has open; filePath and dirty describe the
   // active document and "any unsaved document" respectively.
   const st = { win, docs: [], activeId: null, filePath: null, dirty: false, watchers: new Map(), drafts: new Set(),
-    folder: opts.folder || null, init: opts, draftBase: recovery.newId(), pendingRecover: new Map() };
+    folder: opts.folder || (deskSync && deskSync.library) || null, init: opts, draftBase: recovery.newId(), pendingRecover: new Map() };
   wins.set(win.id, st);
   const id = win.id;
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -259,7 +266,7 @@ ipcMain.handle('init', (e) => {
   const st = W(e);
   return {
     settings: shared(),
-    folder: st.folder, zh, isMac, platform: process.platform, home: os.homedir(),
+    folder: st.folder, zh, isMac, platform: process.platform, home: os.homedir(), library: deskSync ? deskSync.library : null,
   };
 });
 
@@ -358,7 +365,6 @@ ipcMain.handle('set-title', (e, title) => { const st = W(e); if (st) st.win.setT
 //    a revision already written for that document is not written (it would put back
 //    older text). That protects typing during a save within one window.
 // Answers: { ok: true, filePath, version } | { ok: false, conflict: true, … } | null (cancelled or failed)
-const saveQueue = fileops.keyedQueue();
 const writtenRev = new Map(); // path -> { owner, rev, version }
 function saveDialog(st, opts) {
   if (testHooks && testHooks.answer.saveDialog !== undefined) {
@@ -412,6 +418,7 @@ handle('save', async (e, { content, saveAs, filePath, docId, rev, suggest, expec
   });
   if (!result || !result.ok) return result || null;
   if (p !== filePath) addRecent(p);
+  if (!result.skipped) libraryChanged(p);
   return result;
 });
 function saveFailed(err) {
@@ -447,7 +454,9 @@ handle('trash', async (e, p) => {
     buttons: [t('移到废纸篓', 'Move to Trash'), t('取消', 'Cancel')], defaultId: 0, cancelId: 1,
   });
   if (response !== 0) return { ok: false, canceled: true };
-  return fileops.moveToTrash(p, { trashItem: (x) => (testHooks && testHooks.trashItem ? testHooks.trashItem(x) : shell.trashItem(x)) });
+  const r = await fileops.moveToTrash(p, { trashItem: (x) => (testHooks && testHooks.trashItem ? testHooks.trashItem(x) : shell.trashItem(x)) });
+  if (r.ok) libraryChanged(p);
+  return r;
 });
 ipcMain.handle('create-file', async (_e, { dir, name, isDir }) => {
   if (!name || /[\\/]/.test(name)) return null;
@@ -455,6 +464,7 @@ ipcMain.handle('create-file', async (_e, { dir, name, isDir }) => {
   const p = path.join(dir, name);
   if (fs.existsSync(p)) return null;
   if (isDir) await fsp.mkdir(p); else await fsp.writeFile(p, '');
+  libraryChanged(p);
   return p;
 });
 // Renaming a folder moves every open document inside it: each window is told
@@ -475,8 +485,16 @@ handle('rename', async (_e, { from, name }) => {
   settings.recent = settings.recent.map((p) => move(p) || p);
   if (settings.lastFolder) settings.lastFolder = move(settings.lastFolder) || settings.lastFolder;
   saveSettings(); buildMenu();
+  libraryChanged(to);
   return to;
 });
+
+// ---------- sync ----------
+// The renderer's Settings shows and changes this; the same calls exist on iPhone (mobile-api.js).
+handle('sync-config', () => ({ url: settings.syncUrl || '', library: deskSync && deskSync.library, status: deskSync ? deskSync.status() : { state: 'off' } }));
+handle('sync-connect', (_e, req) => deskSync.connect(req || {}));
+handle('sync-disconnect', () => deskSync.disconnect());
+handle('sync-now', () => deskSync.syncNow());
 
 // Image calls name the document they are for (docPath, null for an unsaved one):
 // the link is made relative to that document even if another one is active by the
@@ -606,6 +624,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: t('打开…', 'Open…'), accelerator: 'CmdOrCtrl+O', click: () => openDialog(false) },
         { label: t('打开文件夹…', 'Open Folder…'), click: () => openDialog(true) },
+        { label: t('我的文件库', 'My Library'), accelerator: 'CmdOrCtrl+Shift+L', click: () => deskSync && openFolder(deskSync.library) },
         {
           label: t('打开最近使用', 'Open Recent'),
           submenu: [
@@ -760,6 +779,15 @@ else {
   app.whenReady().then(() => {
     if (testHooks) testHooks.createWindow = (opts) => { createWindow(opts); };
     loadSettings();
+    deskSync = createDesktopSync({
+      userData: app.getPath('userData'), safeStorage, queue: saveQueue, fetch: (...a) => net.fetch(...a),
+      trashItem: (p) => (testHooks && testHooks.trashItem ? testHooks.trashItem(p) : shell.trashItem(p)),
+      getUrl: () => settings.syncUrl, setUrl: (u) => { settings.syncUrl = u; saveSettings(); },
+      notify: (s) => { for (const w of wins.values()) w.win.webContents.send('sync-status', s); },
+      device: isMac ? 'Mac' : 'Windows',
+    });
+    deskSync.start();
+    app.on('browser-window-focus', () => deskSync.focused());
     zh = /^zh/i.test(process.env.WHIMFLOW_LANG || (settings.language !== 'auto' ? settings.language : app.getLocale()));
     nativeTheme.themeSource = 'system';
     buildMenu();

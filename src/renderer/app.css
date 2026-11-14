@@ -421,6 +421,14 @@ body.picking-code #editor .cm-cb { cursor: copy; }
 .chips { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .chips button { font: 11px var(--mono-font); color: var(--muted); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
 .chips button:hover { color: var(--accent); border-color: var(--accent); }
+.set-btn { padding: 4px 11px; border-radius: 7px; border: 1px solid var(--border); font-size: 12px; white-space: nowrap; }
+.set-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.set-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.set-btn.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.05); }
+.set-btn:disabled { opacity: .5; }
+.sync-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.sync-state { font-size: 12px; color: var(--muted); }
+.sync-msg { font-size: 12px; color: var(--tok-deletion); min-height: 1em; text-align: right; }
 
 /* ---------- context menu ---------- */
 #ctxmenu { position: fixed; z-index: 70; min-width: 200px; padding: 5px; border-radius: 11px; background: var(--bg); border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(40,30,20,.06), 0 10px 30px rgba(40,30,20,.18); animation: mf-pop .1s ease; user-select: none; }

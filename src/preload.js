@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld('api', {
   exportDoc: inv('export'),
   setSetting: inv('set-setting'),
   treeMenu: inv('tree-menu'),
+  syncConfig: inv('sync-config'),
+  syncConnect: inv('sync-connect'),
+  syncDisconnect: inv('sync-disconnect'),
+  syncNow: inv('sync-now'),
   reply: (ch, v) => ipcRenderer.send(ch, v),
   copyText: (s) => { ipcRenderer.send('copy-text', String(s)); }, // the clipboard module is not available to a sandboxed preload
   pathForFile: (f) => webUtils.getPathForFile(f),
@@ -50,4 +54,5 @@ contextBridge.exposeInMainWorld('api', {
   onJump: on('jump'),
   onShowDoc: on('show-doc'),
   onFullscreen: on('fullscreen'),
+  onSyncStatus: on('sync-status'),
 });

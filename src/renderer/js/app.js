@@ -564,6 +564,17 @@ const api = window.api;
   api.onShowDoc((d) => { ctx.docs.show(d); });
   api.onJump((j) => { editor.jumpTo(j); });
   api.onFolder((dir) => { ctx.sidebar.setFolder(dir); ctx.sidebar.setSidebar(true, 'files'); });
+  // sync: the sidebar shows how it is doing; files it brought in show up in the tree (open
+  // documents follow on their own: a changed file is reported like any change on disk)
+  if (api.onSyncStatus) {
+    api.onSyncStatus((s) => {
+      ctx.sidebar.setSync(s);
+      if (s.changed && state.folder && state.folder === env.library) ctx.sidebar.refreshTree();
+      const n = (s.conflicts || []).length;
+      if (n) toast(t(`${n} 篇文档在两台设备上都改过，两份都保留了（名字里带「冲突」的是另一份）`, `${n} document(s) were changed on two devices; both versions are kept (the copy has "冲突" in its name)`));
+    });
+    api.syncConfig().then((c) => ctx.sidebar.setSync(c.status));
+  }
   // a file or a whole folder was renamed: every open document inside follows it
   api.onRenamed(({ from, to }) => {
     let moved = false;

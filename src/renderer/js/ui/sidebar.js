@@ -1,6 +1,7 @@
 // Left island: file tree and outline.
 import { $, t, basename, dirname, prompt, toast } from '../util.js';
 import { remapPath } from '../paths.js';
+import { syncText } from './settings.js';
 
 export function initSidebar(ctx) {
   const { api, state } = ctx;
@@ -113,9 +114,19 @@ export function initSidebar(ctx) {
   }
 
   // ---------- file tree ----------
+  // the library (the app's own synced folder) is named as such, with how the sync is doing
+  let sync = null;
+  function folderLabel() {
+    const meta = cards.files.querySelector('.card-meta'), dir = state.folder;
+    const lib = !!dir && dir === ctx.env.library;
+    const note = lib ? syncText(sync, true) : '';
+    meta.textContent = !dir ? '' : (lib ? t('我的文件库', 'My Library') : basename(dir)) + (note ? ' · ' + note : '');
+    meta.dataset.tip = lib ? syncText(sync) : dir || '';
+  }
+  function setSync(s) { sync = s; folderLabel(); }
   async function setFolder(dir) {
     state.folder = dir;
-    cards.files.querySelector('.card-meta').textContent = dir ? basename(dir) : '';
+    folderLabel();
     openDirs.clear();
     await refreshTree();
   }
@@ -206,5 +217,5 @@ export function initSidebar(ctx) {
     refreshTree();
   }
 
-  return { setSidebar, toggleCard, isOpen, refreshOutline, highlight, setFolder, refreshTree, markActiveFile, renamed, files: () => treeData };
+  return { setSidebar, toggleCard, isOpen, refreshOutline, highlight, setFolder, setSync, refreshTree, markActiveFile, renamed, files: () => treeData };
 }

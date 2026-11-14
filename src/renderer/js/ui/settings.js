@@ -2,6 +2,17 @@
 import { $, t } from '../util.js';
 import { setLineBreaks } from '../render.js';
 
+/** One line about the sync, for Settings and the sidebar. */
+export function syncText(s, short = false) {
+  if (!s || s.state === 'off') return short ? '' : t('未连接服务器', 'Not connected');
+  if (s.state === 'syncing') return t('正在同步…', 'Syncing…');
+  if (s.state === 'offline') return short ? t('离线', 'Offline') : t('连不上服务器，有网时会自动同步', 'Offline; syncs again when the server is reachable');
+  if (s.state === 'auth') return short ? t('同步出错', 'Sync error') : t('服务器不接受这个令牌，请断开后重新连接', 'The server refused the token; disconnect and connect again');
+  if (s.state === 'error') return short ? t('同步出错', 'Sync error') : t('同步出错：', 'Sync error: ') + (s.message || '');
+  const at = s.at ? new Date(s.at).toLocaleTimeString(t('zh-CN', 'en-US'), { hour: '2-digit', minute: '2-digit' }) : '';
+  return t('已同步', 'Synced') + (at && !short ? ' ' + at : '');
+}
+
 const THEMES = [['daylight', '象牙', 'Ivory'], ['paper', '纸张', 'Paper'], ['mint', '鼠尾草', 'Sage'], ['slate', '暖夜', 'Dusk'], ['midnight', '深夜', 'Night']];
 
 export function initSettings(ctx) {
@@ -60,10 +71,55 @@ export function initSettings(ctx) {
   };
   const section = (title) => { const h = document.createElement('div'); h.className = 'set-section eyebrow'; h.textContent = title; return h; };
 
+  // ---------- sync (the desktop and the iPhone app answer the same calls) ----------
+  const syncBox = document.createElement('div');
+  const button = (label, fn, cls = '') => { const b = document.createElement('button'); b.className = 'set-btn ' + cls; b.textContent = label; b.onclick = fn; return b; };
+  const input = (type, placeholder) => { const i = document.createElement('input'); i.type = type; i.placeholder = placeholder; i.spellcheck = false; i.autocapitalize = 'off'; i.autocomplete = 'off'; return i; };
+  const wrap = (...kids) => { const b = document.createElement('div'); b.className = 'textset'; b.append(...kids); return b; };
+  async function renderSync() {
+    if (!api.syncConfig) { syncBox.textContent = ''; return; }
+    const cfg = await api.syncConfig();
+    syncBox.textContent = '';
+    if (cfg.url) {
+      const state = document.createElement('span'); state.className = 'sync-state'; state.textContent = syncText(cfg.status);
+      const row = document.createElement('div'); row.className = 'sync-actions';
+      row.append(state,
+        button(t('立即同步', 'Sync now'), () => api.syncNow()),
+        button(t('断开', 'Disconnect'), async () => {
+          if (!window.confirm(t('断开后不再同步。本机和服务器上的文件都会保留。', 'Stop syncing? The files stay, here and on the server.'))) return;
+          await api.syncDisconnect(); renderSync();
+        }));
+      syncBox.append(field(t('服务器', 'Server'), cfg.url.replace(/^https:\/\//, ''), row));
+      return;
+    }
+    const url = input('text', 'whimflow.example.com'), token = input('password', t('令牌', 'Token'));
+    const msg = document.createElement('div'); msg.className = 'sync-msg';
+    const go = button(t('连接', 'Connect'), async () => {
+      msg.textContent = t('正在连接…', 'Connecting…'); go.disabled = true;
+      const r = await api.syncConnect({ url: url.value, token: token.value });
+      go.disabled = false;
+      if (r && r.ok) { renderSync(); return; }
+      msg.textContent = ({
+        url: t('地址不对（需要 https）', 'Not a valid address (https is required)'),
+        token: t('请填写令牌', 'Enter the token'),
+        auth: t('服务器不接受这个令牌', 'The server refused this token'),
+        offline: t('连不上这个服务器', 'Could not reach this server'),
+      })[r && r.error] || t('连接失败：', 'Could not connect: ') + ((r && r.message) || '');
+    }, 'primary');
+    token.onkeydown = (e) => { if (e.key === 'Enter') go.click(); };
+    syncBox.append(
+      field(t('服务器地址', 'Server address'), t('你的 WhimFlow 同步服务器', 'Your WhimFlow sync server'), wrap(url)),
+      field(t('令牌', 'Token'), t('服务器上生成的访问令牌，只需填一次', 'The access token from the server; entered once'), wrap(token, go, msg)),
+    );
+  }
+  if (api.onSyncStatus) api.onSyncStatus((st) => { const el = syncBox.querySelector('.sync-state'); if (el) el.textContent = syncText(st); });
+
   function build() {
     const body = root.querySelector('.set-body');
     body.textContent = '';
     body.append(
+      section(t('同步', 'Sync')),
+      syncBox,
       section(t('外观', 'Appearance')),
       field(t('主题', 'Theme'), null, segmented('theme', THEMES.map(([id, z, e]) => [id, t(z, e)]))),
       field(t('正文字体', 'Text font'), null, segmented('docFont', [['serif', t('衬线', 'Serif')], ['sans', t('无衬线', 'Sans')], ['system', t('系统', 'System')]])),
@@ -91,7 +147,7 @@ export function initSettings(ctx) {
       field(t('界面语言', 'Interface language'), t('重新打开窗口后生效', 'Takes effect in new windows'), segmented('language', [['auto', t('跟随系统', 'System')], ['zh', '中文'], ['en', 'English']])),
     );
   }
-  function open() { current = { ...ctx.state.settings }; build(); root.hidden = false; root.querySelector('.set-sheet').focus(); }
+  function open() { current = { ...ctx.state.settings }; build(); renderSync(); root.hidden = false; root.querySelector('.set-sheet').focus(); }
   function close() { root.hidden = true; ctx.editor.focus(); }
   root.querySelector('.set-close').onclick = close;
   root.querySelector('.set-close').dataset.tip = t('关闭', 'Close') + '  Esc';
