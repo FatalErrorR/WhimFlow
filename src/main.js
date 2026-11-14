@@ -107,7 +107,8 @@ function createWindow(opts = {}) {
   // docs/activeId mirror what the renderer has open; filePath and dirty describe the
   // active document and "any unsaved document" respectively.
   const st = { win, docs: [], activeId: null, filePath: null, dirty: false, watchers: new Map(), drafts: new Set(),
-    folder: opts.folder || (deskSync && deskSync.library) || null, init: opts, draftBase: recovery.newId(), pendingRecover: new Map() };
+    // the library, unless the window was opened for files (their own folder shows, as before)
+    folder: opts.folder || (opts.files && opts.files.length ? null : deskSync && deskSync.library) || null, init: opts, draftBase: recovery.newId(), pendingRecover: new Map() };
   wins.set(win.id, st);
   const id = win.id;
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
