@@ -21,7 +21,7 @@ WhimFlow is a desktop Markdown editor built with Electron and CodeMirror 6. It k
 - KaTeX math and Mermaid diagrams
 - Multiple documents, search, history, recovery, and export tools
 - Native file associations for Markdown documents
-- macOS and Windows desktop builds
+- macOS and Windows desktop builds, plus an iPhone / iPad app (iOS 16.4+)
 
 ## Preview
 
@@ -61,10 +61,35 @@ npm run dist:win
 
 Build output is written to `dist/`. Release artifacts are kept out of Git by `.gitignore` and uploaded to GitHub Releases instead.
 
+## iPhone and iPad
+
+The iOS app lives in `mobile/` (Capacitor) and shares the desktop interface code: editor, final view, highlighting, and conflict detection. Documents are stored in the app's own folder, visible in the Files app under *On My iPhone › WhimFlow*. Requires iOS / iPadOS 16.4 or newer.
+
+On a Mac with Xcode:
+
+```bash
+# install the iOS dependencies once
+cd mobile && npm ci && cd ..
+
+# build the web app and sync it into the Xcode project
+npm run build:mobile
+
+# open in Xcode, pick a simulator or device, and run
+cd mobile && npx cap open ios
+```
+
+To run on a real device or publish, choose your Apple developer team under *Signing & Capabilities* in Xcode.
+
 ## Tests
 
 ```bash
 npm test
+```
+
+To test the iPhone and iPad layouts in an emulated browser (no Mac needed):
+
+```bash
+npm run test:mobile
 ```
 
 The test suite covers editor behavior, rendering, document safety, recovery, preview synchronization, and layout checks.
@@ -76,7 +101,9 @@ The test suite covers editor behavior, rendering, document safety, recovery, pre
 | `src/main.js`, `src/main/` | Electron main process, file operations, history, recovery, search, and export |
 | `src/preload.js` | Secure bridge between the main process and the renderer |
 | `src/renderer/` | Editor, live preview, panels, themes, and UI behavior |
-| `scripts/build.js` | Builds the renderer bundle |
+| `src/renderer/js/mobile/`, `src/renderer/js/platform/` | iPhone / iPad interface and the Capacitor-backed file API |
+| `mobile/` | Capacitor project and Xcode workspace for iOS |
+| `scripts/build.js` | Builds the renderer bundle (desktop, or `mobile` for iOS) |
 | `docs/` | Markdown reference material |
 | `test/` | Automated tests |
 | `build/` | Application artwork and platform icons |

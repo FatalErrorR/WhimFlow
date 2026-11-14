@@ -1,0 +1,14 @@
+{
+  "appId": "app.whimflow.editor",
+  "appName": "WhimFlow",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "backgroundColor": "#f4f3ee"
+  },
+  "plugins": {
+    "Keyboard": { "resize": "none", "resizeOnFullScreen": false },
+    "StatusBar": { "overlaysWebView": true, "style": "DEFAULT" }
+  }
+}

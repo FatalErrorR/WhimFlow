@@ -67,9 +67,19 @@ function editLines(view, fn) {
     if (next != null && next !== line.text) changes.push({ from: line.from, to: line.to, insert: next });
   });
   if (!changes.length) return true;
-  const tr = state.update({ changes, scrollIntoView: true, userEvent: 'input.format' });
-  view.dispatch(tr);
-  // keep the caret at the end of its line content when it was on an empty-ish line
+  // a caret keeps its distance from the end of its line, so it stays by the same text,
+  // and on an empty line it ends up after the new marker ("- [ ] |"), ready to type
+  const sel = state.selection.main;
+  let selection;
+  if (sel.empty) {
+    const line = state.doc.lineAt(sel.head);
+    const c = changes.find((x) => x.from === line.from);
+    if (c) {
+      const before = changes.filter((x) => x.from < line.from).reduce((n, x) => n + x.insert.length - (x.to - x.from), 0);
+      selection = { anchor: line.from + before + Math.max(0, c.insert.length - (line.to - sel.head)) };
+    }
+  }
+  view.dispatch(state.update({ changes, selection, scrollIntoView: true, userEvent: 'input.format' }));
   return true;
 }
 
@@ -97,7 +107,8 @@ function toggleList(view, kind) {
     if (kind === 'ordered-list') return /^\d/.test(m[2]);
     return /^[-*+]/.test(m[2]) && !/\[[ xX]\]/.test(m[2]);
   };
-  const all = lines.every((l) => !l.text.trim() || has(l.text));
+  // already a list of this kind (blank lines in between don't count, but blank lines alone are not a list)
+  const all = lines.some((l) => l.text.trim()) && lines.every((l) => !l.text.trim() || has(l.text));
   let n = 0;
   return editLines(view, (text) => {
     if (!text.trim() && lines.length > 1) return text;

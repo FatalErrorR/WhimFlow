@@ -85,7 +85,9 @@ function mathBlock(state, startLine, endLine, silent) {
   return true;
 }
 
-const md = new MarkdownIt({ html: true, linkify: true, breaks: false });
+// breaks: a single line break inside a paragraph is shown as a line break (what the editor shows).
+// Strict CommonMark (a line break is a space) is one setting away: setLineBreaks(false).
+const md = new MarkdownIt({ html: true, linkify: true, breaks: true });
 md.use(footnote).use(markPlugin).use(taskLists, { enabled: true, label: false });
 md.inline.ruler.after('escape', 'math_inline', mathInline);
 md.block.ruler.before('fence', 'math_block', mathBlock, { alt: ['paragraph', 'reference', 'blockquote', 'list'] });
@@ -173,6 +175,13 @@ const PURIFY = {
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|file):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
 };
 export const sanitize = (html) => DOMPurify.sanitize(html, PURIFY);
+
+/** Single line breaks: shown as line breaks (true) or joined like spaces, as CommonMark says (false). */
+export function setLineBreaks(on) {
+  if (md.options.breaks === !!on) return false;
+  md.set({ breaks: !!on });
+  return true;
+}
 
 /** YAML front matter at the top of a document: the simple `key: value` pairs, and the rest. */
 export function frontMatter(src) {
@@ -264,7 +273,7 @@ function loadMermaid() {
   if (!mermaidReady) {
     mermaidReady = new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = '../../node_modules/mermaid/dist/mermaid.min.js';
+      s.src = window.WHIMFLOW_MERMAID || '../../node_modules/mermaid/dist/mermaid.min.js'; // the iOS bundle ships it elsewhere
       s.onload = () => resolve(window.mermaid);
       s.onerror = () => reject(new Error('mermaid failed to load'));
       document.head.append(s);

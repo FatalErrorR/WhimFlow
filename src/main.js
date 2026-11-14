@@ -44,6 +44,7 @@ const DEFAULTS = {
   closeBrackets: true, indent: 4, spellcheck: false, showInvisibles: false,
   imageFolder: './assets', imageRelative: true, imageCopy: true,
   drafts: true, history: true, historyKeep: 50, language: 'auto',
+  lineBreaks: true, // a single line break shows as one in the final view and exports (strict CommonMark: off)
 };
 // Settings the renderer may change, and that every window is told about.
 const SHARED = Object.keys(DEFAULTS).filter((k) => !['recent', 'lastFolder'].includes(k));

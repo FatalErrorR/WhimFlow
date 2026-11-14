@@ -12,7 +12,9 @@
     "test": "npm run build && node test/unit.js && node test/smoke.js && node test/features.js && node test/docs.js && node test/code.js && node test/preview.js && node test/layout.js && node test/safety.js",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never",
-    "test:unit": "node test/unit.js"
+    "test:unit": "node test/unit.js",
+    "build:mobile": "node scripts/build.js mobile && cd mobile && npx cap sync ios",
+    "test:mobile": "node scripts/build.js mobile && node test/mobile.js"
   },
   "dependencies": {
     "html-to-docx": "^1.8.0",

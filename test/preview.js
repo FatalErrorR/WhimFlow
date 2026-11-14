@@ -59,7 +59,7 @@ graph LR
   const app = await _electron.launch({
     executablePath: require(path.join(root, 'node_modules/electron')),
     args: ['--no-sandbox', root, path.join(work, 'doc.md'), '--user-data-dir=' + path.join(work, 'ud')],
-    env: { ...process.env, WHIMFLOW_TEST: '1', WHIMFLOW_LANG: 'zh' },
+    env: { ...process.env, WHIMFLOW_TEST: '1', WHIMFLOW_LANG: 'zh', WHIMFLOW_TEST_EXPORT: path.join(work, 'out') },
   });
   const page = await app.firstWindow();
   page.on('pageerror', (e) => { errors.push(e.message); console.log('[pageerror]', e.message); });
@@ -179,7 +179,33 @@ graph LR
   await page.screenshot({ path: path.join(shots, 'preview-bands.png') });
   step('caret position in the final view: section band, brighter line band, aligned edges');
 
-  // keeps up with typing: a typed word shows in well under a second
+  // a single Enter is a new line in the final view (and in exports); strict Markdown is a setting away
+  await page.evaluate(() => { const v = window.__whimflow.editor.view; v.dispatch({ selection: { anchor: v.state.doc.length } }); v.focus(); });
+  await page.keyboard.type('\nfirst line');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('second line');
+  await settle();
+  const lines = () => page.evaluate(() => {
+    const p = [...document.querySelectorAll('#preview-doc p')].find((e) => e.textContent.includes('first line'));
+    const r = document.createRange(); r.selectNodeContents(p);
+    return { br: !!p.querySelector('br'), rows: new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size };
+  });
+  let lb = await lines();
+  assert(lb.br && lb.rows === 2, 'Enter is a line break in the final view: ' + JSON.stringify(lb));
+  await page.evaluate(() => window.api.exportDoc && window.__whimflow.run('export', 'html'));
+  const outHtml = path.join(work, 'out.html');
+  for (let i = 0; i < 50 && !fs.existsSync(outHtml); i++) await page.waitForTimeout(100);
+  assert(/first line<br>\s*second line/.test(fs.readFileSync(outHtml, 'utf8')), 'and in the exported HTML');
+  await page.evaluate(() => window.api.setSetting('lineBreaks', false));
+  await settle();
+  lb = await lines();
+  assert(!lb.br && lb.rows === 1, 'strict Markdown: the two lines are joined: ' + JSON.stringify(lb));
+  await page.evaluate(() => window.api.setSetting('lineBreaks', true));
+  await settle();
+  assert((await lines()).br, 'and back');
+  step('a single line break shows in the final view and exports; strict Markdown as a setting');
+
+
   await page.evaluate(() => { const v = window.__whimflow.editor.view; v.dispatch({ selection: { anchor: v.state.doc.length } }); v.focus(); });
   const t0 = Date.now();
   await page.keyboard.type('\nquickcheck', { delay: 30 });

@@ -19,6 +19,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC, OUT = ROOT / 'build/icon-artwork.webp', ROOT / 'build/icon.png'
+OUT_IOS = ROOT / 'build/icon-ios.png'   # iOS: an opaque square; iOS rounds the corners itself
+IOS_SLOT = ROOT / 'mobile/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png'
 GRID, SIZE = 824, 1024          # Apple: an 824 px body on a 1024 px canvas
 RAYS, SS = 1440, 4              # edge samples round the icon; supersampling for the outline
 EDGE_STEP = 22.0                # colour change per pixel that counts as an edge (the shadow stays far below)
@@ -147,4 +149,18 @@ ox = round(SIZE / 2 - (left + right) / 2 * scale)
 oy = round(SIZE / 2 - (top + bottom) / 2 * scale)
 canvas.alpha_composite(art, dest=(max(0, ox), max(0, oy)), source=(max(0, -ox), max(0, -oy)))
 canvas.save(OUT)
+
+# --- iOS: the body only, full bleed, no transparency. Cropped a little inside the outline,
+# so the corners iOS cuts never show a sliver of the artwork's own edge or rim.
+inset = 0.035 * (right - left)
+box = (left + inset, top + inset, right - inset, bottom - inset)
+side = min(box[2] - box[0], box[3] - box[1])
+cxb, cyb = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+box = (cxb - side / 2, cyb - side / 2, cxb + side / 2, cyb + side / 2)
+fill = np.median(colour[int(cyb) - 40:int(cyb) + 40, int(left + inset):int(left + inset) + 6].reshape(-1, 3), axis=0)  # the body's own colour at its edge
+flat = colour * alpha[..., None] + fill * (1 - alpha[..., None])
+ios = Image.fromarray(np.clip(flat, 0, 255).round().astype(np.uint8), 'RGB').crop(tuple(round(v) for v in box)).resize((1024, 1024), Image.LANCZOS)
+ios.save(OUT_IOS)
+if IOS_SLOT.parent.exists():
+    ios.save(IOS_SLOT)
 print(f'wrote {OUT}  body {right - left:.0f}x{bottom - top:.0f}px in the artwork, scaled {scale:.3f}')

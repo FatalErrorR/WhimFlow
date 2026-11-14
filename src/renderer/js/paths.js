@@ -1,7 +1,7 @@
 // File paths and file:// URLs in the renderer. On Windows a path may use "\" (and
 // start with a drive letter or \\server\share); elsewhere "\" is an ordinary
 // character in a file name and must be kept, and encoded, as such.
-export const platform = { windows: false };
+export const platform = { windows: false, fileUrlFn: null }; // fileUrlFn: iOS shows files through its own URLs
 export const setPlatform = (name) => { platform.windows = name === 'win32'; };
 
 const SEP = () => (platform.windows ? /[\\/]/ : /\//);
@@ -15,6 +15,7 @@ export const basename = (p) => p.split(SEP()).pop();
 
 /** An absolute path as a file:// URL; every character that means something in a URL (space, #, ?, %) is encoded. */
 export function fileUrl(p) {
+  if (platform.fileUrlFn) return platform.fileUrlFn(p);
   if (platform.windows) {
     const parts = p.split(/[\\/]/);
     if (/^[\\/]{2}[^\\/]/.test(p)) { // \\server\share\…

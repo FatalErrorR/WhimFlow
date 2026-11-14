@@ -25,7 +25,8 @@ const api = window.api;
   setPlatform(env.platform);
   const isMac = env.isMac;
   const state = { settings: { ...env.settings }, filePath: null, dirty: false, theme: env.settings.theme, autoSave: env.settings.autoSave, folder: env.folder, zoom: 1, focus: false, typewriter: false, tab: 'outline', loading: false };
-  document.body.classList.toggle('mac', isMac);
+  document.body.classList.toggle('mac', isMac && !env.mobile); // iPad: ⌘ shortcuts, but no window buttons to make room for
+  document.body.classList.toggle('mobile', !!env.mobile);
   document.documentElement.lang = env.zh ? 'zh-CN' : 'en';
   document.documentElement.dataset.theme = state.theme;
   $('#modal-cancel').textContent = t('取消', 'Cancel');
@@ -286,7 +287,7 @@ const api = window.api;
       scheduleAuto(doc);
     }
     const isActive = doc === ctx.docs.active();
-    if (isActive && (saveAs || !had || !state.autoSave)) toast(t('已保存', 'Saved'));
+    if (isActive && !env.mobile && (saveAs || !had || !state.autoSave)) toast(t('已保存', 'Saved')); // phones save on their own; the top bar shows it
     if (isActive) { state.filePath = p; state.dirty = doc.dirty; updateTitle(); }
     ctx.docs.sync();
     if (isActive && ctx.right.isOpen() && ctx.right.tab() === 'history') ctx.history.render();
@@ -637,4 +638,5 @@ const api = window.api;
   editor.focus();
   document.body.classList.add('ready');
   await api.ready();
+  window.dispatchEvent(new Event('whimflow-ready')); // the iPhone / iPad interface attaches here
 })();

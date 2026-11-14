@@ -1,5 +1,6 @@
 // Preferences: one quiet sheet. Every change applies immediately, in every window.
 import { $, t } from '../util.js';
+import { setLineBreaks } from '../render.js';
 
 const THEMES = [['daylight', '象牙', 'Ivory'], ['paper', '纸张', 'Paper'], ['mint', '鼠尾草', 'Sage'], ['slate', '暖夜', 'Dusk'], ['midnight', '深夜', 'Night']];
 
@@ -72,6 +73,7 @@ export function initSettings(ctx) {
       section(t('编辑', 'Editing')),
       field(t('自动配对括号和引号', 'Close brackets and quotes'), null, toggle('closeBrackets')),
       field(t('缩进宽度', 'Indent width'), null, segmented('indent', [[2, '2'], [4, '4']])),
+      field(t('单个换行', 'Single line breaks'), t('开：按一次回车，正式稿和导出里也换行。关：严格按 Markdown 标准，连成一行，空一行才分段', 'On: one Enter is a new line in the final view and exports too. Off: strict Markdown, joined into one line until a blank line'), toggle('lineBreaks')),
       field(t('显示不可见字符', 'Show invisible characters'), t('用很淡的符号画出空格、Tab 和换行', 'Faint marks for spaces, tabs and line breaks'), toggle('showInvisibles')),
       field(t('拼写检查', 'Spell check'), null, toggle('spellcheck')),
       field(t('自动保存', 'Auto save'), t('停止输入后自动写入文件', 'Write to the file shortly after you stop typing'), toggle('autoSave')),
@@ -108,5 +110,7 @@ export function applySettings(ctx, s) {
   const fonts = { sans: 'var(--ui-font)', system: 'system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif' };
   if (fonts[s.docFont]) root.setProperty('--doc-font', fonts[s.docFont]); else root.removeProperty('--doc-font');
   ctx.editor.configure({ closeBrackets: s.closeBrackets, indent: s.indent, spellcheck: s.spellcheck, invisibles: !!s.showInvisibles });
+  // single line breaks: the final view (and later exports) render with the new rule
+  if (setLineBreaks(s.lineBreaks !== false) && ctx.right) ctx.right.refresh(true);
   ctx.editor.view.requestMeasure();
 }
