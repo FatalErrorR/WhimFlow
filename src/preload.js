@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   exportDoc: inv('export'),
   setSetting: inv('set-setting'),
   treeMenu: inv('tree-menu'),
+  importFiles: inv('import-files'),
   syncConfig: inv('sync-config'),
   syncConnect: inv('sync-connect'),
   syncDisconnect: inv('sync-disconnect'),

@@ -12,6 +12,7 @@ const exporter = require('./main/exporter');
 const fileops = require('./main/fileops');
 const { createSearch } = require('./main/search');
 const { createDesktopSync } = require('./main/sync-desktop');
+const { importInto } = require('./main/importer');
 const IMG_EXT = images.IMG;
 
 // End-to-end tests (WHIMFLOW_TEST=1 only) reach in here to slow an IPC call down,
@@ -488,6 +489,16 @@ handle('rename', async (_e, { from, name }) => {
   saveSettings(); buildMenu();
   libraryChanged(to);
   return to;
+});
+
+// Files dragged from Finder onto a folder of the sidebar: copied into it (inside the window's folder only)
+handle('import-files', async (e, { paths, dir }) => {
+  const st = W(e);
+  if (!st || !st.folder || !dir || !fileops.isUnder(dir, st.folder) || !Array.isArray(paths)) return null;
+  try { if (!(await fsp.stat(dir)).isDirectory()) return null; } catch (_) { return null; }
+  const r = await importInto(dir, paths.filter((p) => typeof p === 'string' && path.isAbsolute(p)));
+  if (r.added.length) libraryChanged(dir);
+  return r;
 });
 
 // ---------- sync ----------

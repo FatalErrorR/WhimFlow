@@ -134,6 +134,46 @@ export function initSidebar(ctx) {
     treeData = state.folder ? await api.readTree(state.folder) : [];
     renderTree();
   }
+  // ---------- files dragged in from Finder: copied into the folder under the pointer ----------
+  const treeBox = $('#tree');
+  let dropRow = null;
+  const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  /** The folder a drop at this point goes into: a folder row, a document's folder, or the top. */
+  function dropTarget(e) {
+    const row = e.target.closest && e.target.closest('.tree-item');
+    if (!row) return { row: null, dir: state.folder };
+    return { row, dir: row.classList.contains('dir') ? row.dataset.path : dirname(row.dataset.path) };
+  }
+  function showDrop(row) {
+    if (dropRow && dropRow !== row) dropRow.classList.remove('drop-into');
+    dropRow = row;
+    if (row && row.classList.contains('dir')) row.classList.add('drop-into');
+    treeBox.classList.toggle('drop-root', !row || !row.classList.contains('dir'));
+  }
+  const clearDrop = () => { showDrop(null); treeBox.classList.remove('drop-root'); };
+  treeBox.addEventListener('dragover', (e) => {
+    if (!hasFiles(e) || !state.folder || !api.importFiles) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+    showDrop(dropTarget(e).row);
+  });
+  treeBox.addEventListener('dragleave', (e) => { if (!treeBox.contains(e.relatedTarget)) clearDrop(); });
+  treeBox.addEventListener('drop', async (e) => {
+    if (!hasFiles(e) || !state.folder || !api.importFiles) return;
+    e.preventDefault(); e.stopPropagation();
+    const { dir } = dropTarget(e);
+    clearDrop();
+    const paths = [...e.dataTransfer.files].map((f) => api.pathForFile(f)).filter(Boolean);
+    const r = await api.importFiles({ paths, dir });
+    if (!r) { toast(t('无法复制到这里', 'Could not copy here')); return; }
+    if (dir !== state.folder) openDirs.add(dir);
+    await refreshTree();
+    const where = dir === state.folder ? (dir === ctx.env.library ? t('我的文件库', 'My Library') : basename(dir)) : basename(dir);
+    const n = r.added.length;
+    if (n) toast(t(`已复制 ${n} 项到「${where}」`, `Copied ${n} item(s) to “${where}”`) + (r.images ? t(`，连同 ${r.images} 张图片`, `, with ${r.images} image(s)`) : '')
+      + (r.skipped.length ? t(`；未复制：${r.skipped.join('、')}`, `; left out: ${r.skipped.join(', ')}`) : ''));
+    else toast(t('没有可以复制的文档或图片', 'No documents or images to copy') + (r.skipped.length ? t(`：${r.skipped.join('、')}`, `: ${r.skipped.join(', ')}`) : ''));
+  });
+
   function renderTree() {
     const box = $('#tree');
     box.textContent = '';

@@ -551,6 +551,7 @@ const api = window.api;
   // drop Markdown files onto the window to open them
   window.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
   window.addEventListener('drop', (e) => {
+    if (e.target && e.target.closest && e.target.closest('#tree')) return; // onto the file tree: copied in (sidebar.js)
     const files = e.dataTransfer ? [...e.dataTransfer.files] : [];
     const docs = files.filter((f) => /\.(md|markdown|mdown|mkd|mdx|txt)$/i.test(f.name));
     if (!docs.length) return;
