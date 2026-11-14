@@ -138,6 +138,15 @@ export function createMobileApi(hooks = {}) {
   }
 
   // ----- the library -----
+  /** Rename or move: never over an existing item; open documents and the recent list follow. */
+  async function relocate(from, to) {
+    if (to === from || (await exists(to))) return null;
+    try { await Filesystem.rename({ from: rel(from), to: rel(to), directory: DOCS, toDirectory: DOCS }); } catch (_) { return null; }
+    settings.recent = settings.recent.map((p) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : p));
+    await saveSettings();
+    emit('renamed', { from, to });
+    return to;
+  }
   async function readTree(dir = ROOT, depth = 0) {
     if (depth > 6) return [];
     let ents = [];
@@ -318,13 +327,13 @@ export function createMobileApi(hooks = {}) {
     },
     async rename({ from, name }) {
       if (!name || /[\\/]/.test(name)) return null;
-      const to = join(dirOf(from), name);
-      if (to === from || (await exists(to))) return null;
-      try { await Filesystem.rename({ from: rel(from), to: rel(to), directory: DOCS, toDirectory: DOCS }); } catch (_) { return null; }
-      settings.recent = settings.recent.map((p) => (p === from ? to : p.startsWith(from + '/') ? to + p.slice(from.length) : p));
-      await saveSettings();
-      emit('renamed', { from, to });
-      return to;
+      return relocate(from, join(dirOf(from), name));
+    },
+    /** Move a file or folder into another folder of the library, keeping its name. */
+    async move({ from, dir }) {
+      if (!dir || (dir !== ROOT && !dir.startsWith(ROOT + '/'))) return null;
+      if (dir === from || dir.startsWith(from + '/')) return null; // not into itself
+      return relocate(from, join(dir, baseOf(from)));
     },
     /** Delete = move into Documents/.Trash (kept; nothing is erased). */
     async trash(p) {

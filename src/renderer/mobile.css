@@ -32,6 +32,11 @@ body.m-phone.m-read #main { display: none; }
 body.m-phone.m-read #right { display: flex !important; flex: 1; width: auto !important; margin: 2px 6px 0; border-radius: 22px 22px 0 0; border: 1px solid var(--border); border-bottom: 0; background: var(--bg); opacity: 1 !important; }
 body.m-phone #editor .cm-content { padding: 22px 20px calc(45vh + var(--kb)); }
 body.m-phone #preview-doc { padding: 22px 22px calc(30vh + var(--sab)); max-width: none; font-size: calc(var(--doc-size, 17px) * .95); }
+/* the "where the caret is" bar and bands only help when the editor is beside the final view (desktop, iPad);
+   on a phone the read view is shown alone, so they just stand in the way of the text */
+body.m-phone #preview-doc .here, body.m-phone #preview-doc tr.here > :first-child { box-shadow: none !important; }
+body.m-phone #preview-doc li.here::marker { color: inherit; }
+body.m-phone .pv-band { display: none; }
 body.m-phone #editor .cm-scroller { font-size: var(--doc-size, 17px); }
 body.m-phone #doc-switch, body.m-phone #doc-dots { display: none; }
 body.m-phone #findbar { top: 8px; right: 8px; left: 8px; }
@@ -88,14 +93,26 @@ body.m-lib #m-bar, body.m-lib #m-tools { display: none; }
 .m-eyebrow { font: 600 11px var(--ui-font); letter-spacing: .08em; color: var(--muted); padding: 16px 22px 8px; }
 :lang(zh) .m-eyebrow { letter-spacing: .02em; }
 .m-card { margin: 0 14px; background: var(--bg); border-radius: 18px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 1px 2px rgba(60,45,25,.04), 0 10px 26px -18px rgba(60,45,25,.3); }
-.m-doc { padding: 13px 64px 13px 16px; border-bottom: 1px solid var(--border); position: relative; }
+.m-doc { padding: 10px 60px 10px 16px; border-bottom: 1px solid var(--border); position: relative; }
 .m-doc:last-child, .m-folder:last-child { border-bottom: 0; }
+/* swipe a row left: 编辑 (…) and 删除 (×) ride in on the row's right edge (positions set in ui.js) */
+.m-swipe { position: relative; overflow: hidden; border-bottom: 1px solid var(--border); }
+.m-swipe:last-child { border-bottom: 0; }
+.m-swipe > .m-doc, .m-swipe > .m-folder { background: var(--bg); border-bottom: 0; touch-action: pan-y; transition: transform .32s cubic-bezier(.22, 1, .36, 1); }
+.m-swipe-acts { --p: 0; position: absolute; top: 0; right: 0; bottom: 0; width: 132px; display: flex; transform: translateX(132px); transition: transform .32s cubic-bezier(.22, 1, .36, 1), width .32s cubic-bezier(.22, 1, .36, 1); }
+.m-swipe-acts button { flex: 1; display: grid; place-items: center; color: #fff; }
+.m-swipe-acts svg { opacity: var(--p); transform: scale(calc(.6 + .4 * var(--p))); transition: opacity .2s ease, transform .2s ease; }
+.m-act-edit { background: color-mix(in srgb, var(--muted) 75%, var(--fg)); }
+.m-act-del { background: var(--tok-deletion); }
+/* the library is for tapping, not for selecting text (a long press opens the menu instead) */
+#m-lib { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#m-lib input { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 .m-doc:active, .m-folder:active, .m-hit:active { background: var(--hover); }
-.m-doc h4 { font: 600 16px/1.3 var(--serif-font); display: flex; align-items: center; gap: 7px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.m-doc h4 { margin: 0; font: 600 15.5px/1.35 var(--serif-font); display: flex; align-items: center; gap: 7px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .m-doc h4 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
-.m-doc p { font: 13.5px/1.45 var(--serif-font); color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.m-doc small { position: absolute; right: 16px; top: 15px; font: 12px var(--ui-font); color: var(--muted); }
-.m-folder { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); font: 500 15px var(--ui-font); color: var(--fg); }
+.m-doc p { font: 13px/1.4 var(--serif-font); color: var(--muted); margin: 2px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-doc small { position: absolute; right: 16px; top: 12px; font: 12px var(--ui-font); color: var(--muted); }
+.m-folder { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); font: 500 15px var(--ui-font); color: var(--fg); }
 .m-folder svg { color: var(--accent); flex: none; }
 .m-folder small { margin-left: auto; color: var(--muted); font-size: 13px; }
 .m-crumb { display: flex; align-items: center; gap: 4px; margin: 12px 14px 0; color: var(--accent); font: 600 15px var(--ui-font); }

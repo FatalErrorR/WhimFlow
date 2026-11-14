@@ -70,10 +70,16 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   await W(() => { document.body.classList.remove('m-kb'); document.documentElement.style.setProperty('--kb', '0px'); });
   step('formatting bar: inserts at the caret without dropping the keyboard');
 
-  // write / read
+  // write / read (the caret in a paragraph, as when you have just been writing one)
+  await W(() => { const v = window.__whimflow.editor.view; v.dispatch({ selection: { anchor: v.state.doc.line(3).from } }); });
   await page.locator('#m-bar .m-seg button[data-mode="read"]').tap();
   await page.waitForFunction(() => /鸡蛋/.test(document.querySelector('#preview-doc').textContent));
   assert(await body('m-read') && await page.locator('#preview').isVisible() && !(await page.locator('#main').isVisible()), 'read shows the final view alone');
+  await page.waitForSelector('#preview-doc .here', { state: 'attached', timeout: 3000 });
+  assert.deepStrictEqual(await W(() => ({
+    bars: [...document.querySelectorAll('#preview-doc *')].filter((e) => getComputedStyle(e).boxShadow !== 'none').length,
+    bands: [...document.querySelectorAll('.pv-band')].filter((e) => getComputedStyle(e).display !== 'none').length,
+  })), { bars: 0, bands: 0 }, 'no caret bar or bands beside the text when reading on a phone');
   await page.screenshot({ path: path.join(shots, 'm3-read.png') });
   await page.locator('#preview-doc p', { hasText: '牛奶和面包' }).tap();
   await sleep(300);
@@ -99,7 +105,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   const row = page.locator('#m-lib .m-doc').first();
   const box = await row.boundingBox();
   await page.mouse.move(box.x + 60, box.y + 20); await page.mouse.down(); await sleep(650); await page.mouse.up();
-  await page.locator('#ctxmenu .item', { hasText: '重命名' }).click();
+  await page.locator('#ctxmenu .item', { hasText: '编辑名字' }).click();
   await page.fill('#modal-input', '周末采购.md');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.__whimflow.ctx.docs.byPath('/WhimFlow/周末采购.md'), null, { timeout: 5000 });
@@ -112,6 +118,62 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   await page.fill('#modal-input', '工作');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => [...document.querySelectorAll('#m-lib .m-folder')].some((f) => f.textContent.includes('工作')), null, { timeout: 5000 });
+
+  // swipe a row left: … (编辑 → 编辑名字 / 移到文件夹) and × (删除, asked first)
+  const swipe = async (loc) => {
+    const b = await loc.boundingBox(), y = b.y + b.height / 2;
+    await page.mouse.move(b.x + b.width - 30, y); await page.mouse.down();
+    for (let i = 1; i <= 8; i++) await page.mouse.move(b.x + b.width - 30 - i * 25, y);
+    await page.mouse.up(); await sleep(300);
+  };
+  const rowOf = (cls, text) => page.locator('#m-lib .m-swipe', { has: page.locator(cls, { hasText: text }) });
+  const moveVia = async (row, folder) => {
+    await swipe(row);
+    assert(await row.evaluate((e) => e.classList.contains('open')), 'swiping left opens the row');
+    await row.locator('.m-act-edit').tap();
+    assert.deepStrictEqual(await page.locator('#ctxmenu .item').allInnerTexts(), ['编辑名字', '移到文件夹'], '… offers rename and move');
+    await page.locator('#ctxmenu .item', { hasText: '移到文件夹' }).click();
+    await page.locator('#ctxmenu .item', { hasText: folder }).click();
+  };
+  await sleep(900); // the library redraws itself once more after a new folder
+  {
+    // halfway through a swipe the buttons are glued to the row's edge, their icons only half grown
+    const r = rowOf('.m-doc', '购物清单'), b = await r.boundingBox(), y = b.y + b.height / 2;
+    await page.mouse.move(b.x + b.width - 30, y); await page.mouse.down();
+    for (let i = 1; i <= 4; i++) await page.mouse.move(b.x + b.width - 30 - i * 15, y);
+    const mid = await r.evaluate((w) => {
+      const row = w.querySelector('.m-doc'), acts = w.querySelector('.m-swipe-acts');
+      return { gap: Math.round(acts.getBoundingClientRect().left - row.getBoundingClientRect().right), p: +getComputedStyle(acts).getPropertyValue('--p'), select: getComputedStyle(row).webkitUserSelect || getComputedStyle(row).userSelect, h: Math.round(row.getBoundingClientRect().height) };
+    });
+    await page.mouse.move(b.x + b.width - 30, y); await page.mouse.up(); await sleep(400);
+    assert.strictEqual(mid.gap, 0, 'mid-swipe: the buttons move with the row');
+    assert(mid.p > 0.2 && mid.p < 0.8, 'mid-swipe: the icons are still growing: ' + mid.p);
+    assert.strictEqual(mid.select, 'none', 'a long press does not select the row text');
+    assert(mid.h <= 64, 'a document row is compact: ' + mid.h);
+    assert(!(await r.evaluate((w) => w.classList.contains('open'))), 'dragged back: closed again');
+  }
+  await moveVia(rowOf('.m-doc', '购物清单'), '工作');
+  await page.waitForFunction(() => window.api.mobile.exists('/WhimFlow/工作/周末采购.md'), null, { timeout: 5000 });
+  assert(!(await exists('/WhimFlow/周末采购.md')), 'moved into the folder');
+  await page.locator('#m-lib .m-folder', { hasText: '工作' }).tap();
+  await moveVia(rowOf('.m-doc', '购物清单'), 'WhimFlow');
+  await page.waitForFunction(() => window.api.mobile.exists('/WhimFlow/周末采购.md'), null, { timeout: 5000 });
+  assert(!(await exists('/WhimFlow/工作/周末采购.md')), 'and back to the top of the library');
+  await page.locator('#m-lib .m-crumb').tap();
+  const work = rowOf('.m-folder', '工作');
+  await swipe(work);
+  await page.screenshot({ path: path.join(shots, 'm4-swipe.png') });
+  let asked = '';
+  page.once('dialog', (d) => { asked = d.message(); d.dismiss(); });
+  await work.locator('.m-act-del').tap();
+  await sleep(900); // the library redraws after any action on an item
+  assert(/工作/.test(asked) && await exists('/WhimFlow/工作'), 'delete asks first; cancelled, nothing is deleted');
+  await swipe(work);
+  page.once('dialog', (d) => d.accept());
+  await work.locator('.m-act-del').tap();
+  await page.waitForFunction(async () => !(await window.api.mobile.exists('/WhimFlow/工作')), null, { timeout: 5000 });
+  step('swipe left: move into a folder and back; delete asks first');
+
   await page.locator('#m-lib .m-search input').fill('面包');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('#m-lib .m-hit mark'), null, { timeout: 10000 });

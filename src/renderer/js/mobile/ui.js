@@ -16,7 +16,7 @@ const I = {
   share: svg('<path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v8h14v-8"/>'), find: svg('<circle cx="10.5" cy="10.5" r="5.5"/><path d="M19 19l-4.2-4.2"/>'),
   hist: svg('<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/><path d="M12 8v4.5l3 2"/>'), theme: svg('<path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/>'),
   kbd: svg('<rect x="3" y="6" width="18" height="11" rx="2"/><path d="M7 10h1M11 10h1M15 10h1M8 13.5h8"/><path d="M10 20l2 1.5 2-1.5"/>', 20),
-  doc: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>', 20),
+  doc: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>', 20), cross: svg('<path d="M7 7l10 10M17 7L7 17"/>'),
 };
 const THEMES = ['daylight', 'paper', 'mint', 'slate', 'midnight'];
 
@@ -202,7 +202,80 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
     const row = el('div', 'm-doc', `<h4>${open && open.dirty ? '<span class="dot"></span>' : ''}${esc(title)}</h4><p>${esc(snippet.replace(/[*_`#>[\]]/g, ''))}</p><small>${esc(when(mtime))}</small>`);
     row.onclick = () => openDoc(path);
     longPress(row, (x, y) => itemMenu({ path, dir: false }, x, y));
-    return row;
+    return swipeRow(row, { path, dir: false });
+  }
+
+  // ---------- swipe a row left: 编辑 (…) and 删除 (×) ----------
+  const SWIPE = 132; // two 66 px buttons
+  let swiped = null; // the row that is open: { wrap, close }
+  function swipeRow(row, item) {
+    const wrap = el('div', 'm-swipe', `<div class="m-swipe-acts">
+      <button class="m-act-edit" aria-label="${esc(t('编辑', 'Edit'))}">${I.more}</button>
+      <button class="m-act-del" aria-label="${esc(t('删除', 'Delete'))}">${I.cross}</button></div>`);
+    wrap.append(row);
+    const acts = wrap.firstElementChild;
+    // the buttons ride in on the row's right edge (stretching a little past the end), their icons
+    // growing in as they come; one movement, one curve, so the two never drift apart
+    const set = (x, glide) => {
+      for (const n of [row, acts]) n.style.transition = glide ? '' : 'none';
+      row.style.transform = x ? `translateX(${x}px)` : '';
+      acts.style.width = Math.max(SWIPE, -x) + 'px';
+      acts.style.transform = `translateX(${Math.max(0, SWIPE + x)}px)`;
+      acts.style.setProperty('--p', Math.min(1, -x / SWIPE).toFixed(3));
+      wrap.classList.toggle('open', x < 0);
+    };
+    const me = { wrap, close: () => { set(0, true); if (swiped === me) swiped = null; } };
+    const open = () => { if (swiped && swiped !== me) swiped.close(); set(-SWIPE, true); swiped = me; };
+    let x0 = null, y0 = 0, base = 0, dx = 0, dragging = false, endedAt = 0, lastX = 0, lastT = 0, vx = 0;
+    row.addEventListener('pointerdown', (e) => { x0 = lastX = e.clientX; y0 = e.clientY; lastT = e.timeStamp; base = swiped === me ? -SWIPE : 0; dx = vx = 0; dragging = false; });
+    row.addEventListener('pointermove', (e) => {
+      if (x0 == null) return;
+      const mx = e.clientX - x0, my = e.clientY - y0;
+      if (!dragging) {
+        if (Math.abs(my) > 10 && Math.abs(my) > Math.abs(mx)) { x0 = null; return; } // scrolling the list
+        if (Math.abs(mx) < 10) return;
+        dragging = true;
+        try { row.setPointerCapture(e.pointerId); } catch (_) { /* already released */ } // keep the finger's moves even over the buttons
+        if (swiped && swiped !== me) swiped.close();
+      }
+      dx = mx;
+      if (e.timeStamp > lastT) { vx = (e.clientX - lastX) / (e.timeStamp - lastT); lastX = e.clientX; lastT = e.timeStamp; }
+      const x = Math.min(0, base + dx);
+      set(x < -SWIPE ? -SWIPE - Math.min(40, (-SWIPE - x) * 0.3) : x); // past the buttons it pulls back
+    });
+    const end = (e) => { if (x0 == null) return; x0 = null; if (!dragging) return; endedAt = Date.now(); if (e.timeStamp - lastT > 100) vx = 0; // held still before letting go: not a flick
+ (vx < -0.4 || (vx <= 0.4 && base + dx < -SWIPE / 2) ? open : me.close)(); }; // a flick decides; otherwise how far it went
+    row.addEventListener('pointerup', end); row.addEventListener('pointercancel', end);
+    // a tap on an open row closes it instead of opening the document; so does the click a drag may leave behind
+    row.addEventListener('click', (e) => {
+      if (Date.now() - endedAt < 350) { e.stopImmediatePropagation(); return; }
+      if (swiped === me) { e.stopImmediatePropagation(); me.close(); }
+    }, true);
+    wrap.querySelector('.m-act-del').onclick = () => { me.close(); ctx.treeAction('trash', item); }; // trash() asks first
+    wrap.querySelector('.m-act-edit').onclick = (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      showMenu([
+        { label: t('编辑名字', 'Rename'), run: () => { me.close(); ctx.treeAction('rename', item); } },
+        { label: t('移到文件夹', 'Move to Folder'), run: () => { me.close(); moveMenu(item, r.left, r.bottom); } },
+      ], r.left, r.bottom);
+    };
+    return wrap;
+  }
+  // a touch anywhere else closes the open row
+  document.addEventListener('pointerdown', (e) => { if (swiped && !swiped.wrap.contains(e.target) && !e.target.closest('#ctxmenu')) swiped.close(); }, true);
+
+  /** Pick a folder of the library to move a file or folder into. */
+  async function moveMenu(item, x, y) {
+    const here = item.path.replace(/\/[^/]*$/, '') || M.ROOT;
+    const all = [{ name: 'WhimFlow', path: M.ROOT, depth: 0 }];
+    (function walk(nodes, depth) { for (const n of nodes) if (n.dir) { all.push({ name: n.name, path: n.path, depth }); walk(n.children, depth + 1); } })(await M.readTree(M.ROOT), 1);
+    const targets = all.filter((d) => d.path !== here && d.path !== item.path && !d.path.startsWith(item.path + '/'));
+    if (!targets.length) { toast(t('没有可以移入的文件夹，先新建一个', 'No folder to move into. Create one first')); return; }
+    showMenu(targets.map((d) => ({ label: ' '.repeat(d.depth) + d.name, run: () => moveTo(item, d) })), x, y);
+  }
+  async function moveTo(item, d) {
+    if (await api.move({ from: item.path, dir: d.path })) { toast(t(`已移到「${d.name}」`, `Moved to “${d.name}”`)); renderLibrary(); }
+    else toast(t(`「${d.name}」里已有同名的文件或文件夹，没有移动`, `“${d.name}” already has an item with this name; nothing was moved`));
   }
   function longPress(node, fn) {
     let timer = null, start = null;
@@ -214,7 +287,8 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
   }
   function itemMenu(item, x, y) {
     showMenu([
-      { label: t('重命名', 'Rename'), run: () => ctx.treeAction('rename', item) },
+      { label: t('编辑名字', 'Rename'), run: () => ctx.treeAction('rename', item) },
+      { label: t('移到文件夹', 'Move to Folder'), run: () => moveMenu(item, x, y) },
       { label: t('删除', 'Delete'), danger: true, run: () => ctx.treeAction('trash', item) },
     ], x, y);
   }
@@ -258,7 +332,7 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
           const row = el('div', 'm-folder', `${I.folder}<span>${esc(d.name)}</span><small>${count}</small>`);
           row.onclick = () => { folder = d.path; renderLibrary(); };
           longPress(row, (x, y) => itemMenu(d, x, y));
-          c.append(row);
+          c.append(swipeRow(row, d));
         }
       }
       if (files.length) {
