@@ -89,6 +89,16 @@ function mathBlock(state, startLine, endLine, silent) {
 // Strict CommonMark (a line break is a space) is one setting away: setLineBreaks(false).
 const md = new MarkdownIt({ html: true, linkify: true, breaks: true });
 md.use(footnote).use(markPlugin).use(taskLists, { enabled: true, label: false });
+// markdown-it refuses file: links (and data: except a few image types), so a local image written as
+// a file:// URL (what a pasted image gets while its document has no file yet) stayed as text in the
+// final view while the editor showed the picture. file: is allowed here; the HTML still goes
+// through DOMPurify, which allows file: and nothing that runs (see PURIFY).
+md.validateLink = (url) => {
+  const u = String(url).trim().toLowerCase();
+  if (/^(vbscript|javascript):/.test(u)) return false;
+  if (u.startsWith('data:')) return /^data:image\/(gif|png|jpeg|webp);/.test(u);
+  return true;
+};
 md.inline.ruler.after('escape', 'math_inline', mathInline);
 md.block.ruler.before('fence', 'math_block', mathBlock, { alt: ['paragraph', 'reference', 'blockquote', 'list'] });
 md.renderer.rules.math_inline = (t, i) => renderMath(t[i].content, false);

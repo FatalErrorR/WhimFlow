@@ -90,6 +90,23 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   assert.strictEqual(await W(() => window.__whimflow.editor.caretLine()), 3, 'at that paragraph');
   step('写 / 看: the final view, and back to the paragraph tapped');
 
+  // a local image written as a file:// URL shows as a picture in the final view, not as its address;
+  // a javascript: link is still not a link
+  {
+    const before = await W(() => window.__whimflow.editor.getValue());
+    await W(() => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: '![截圖 2026-11-16 00.34.00](file:///Users/x/Library/Application%20Support/WhimFlow/images/%E6%88%AA%E5%9C%96.png)\n\n[坏链接](javascript:alert(1))' } }); });
+    await page.locator('#m-bar .m-seg button[data-mode="read"]').tap();
+    await page.waitForFunction(() => document.querySelector('#preview-doc img'), null, { timeout: 5000 });
+    const shown = await W(() => ({ src: document.querySelector('#preview-doc img').getAttribute('src'), alt: document.querySelector('#preview-doc img').alt,
+      text: document.querySelector('#preview-doc').textContent, links: [...document.querySelectorAll('#preview-doc a')].map((a) => a.getAttribute('href')) }));
+    assert.deepStrictEqual([shown.src, shown.alt], ['file:///Users/x/Library/Application%20Support/WhimFlow/images/%E6%88%AA%E5%9C%96.png', '截圖 2026-11-16 00.34.00'], 'the picture, not its address');
+    assert(!/file:\/\//.test(shown.text), 'no address left as text');
+    assert(!shown.links.some((h) => /^javascript:/i.test(h || '')), 'no javascript: links');
+    await page.locator('#m-bar .m-seg button[data-mode="write"]').tap();
+    await W((t) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } }); }, before);
+  }
+  step('final view: a file:// image shows as a picture, not as its address');
+
   // the sheet: outline
   await W(() => { const v = window.__whimflow.editor.view; const ins = '\n\n## 周末\n\n水果'; v.dispatch({ changes: { from: v.state.doc.length, insert: ins }, selection: { anchor: v.state.doc.length + ins.length } }); });
   await page.locator('#m-bar .m-more').tap();
