@@ -5,6 +5,7 @@
 import { t, toast, showMenu } from '../util.js';
 import { App } from '@capacitor/app';
 import { Keyboard } from '@capacitor/keyboard';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { Capacitor } from '@capacitor/core';
 import { syncText } from '../ui/settings.js';
 
@@ -17,7 +18,7 @@ const I = {
   share: svg('<path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v8h14v-8"/>'), find: svg('<circle cx="10.5" cy="10.5" r="5.5"/><path d="M19 19l-4.2-4.2"/>'),
   hist: svg('<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/><path d="M12 8v4.5l3 2"/>'), theme: svg('<path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/>'),
   kbd: svg('<rect x="3" y="6" width="18" height="11" rx="2"/><path d="M7 10h1M11 10h1M15 10h1M8 13.5h8"/><path d="M10 20l2 1.5 2-1.5"/>', 20),
-  doc: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>', 20), cross: svg('<path d="M7 7l10 10M17 7L7 17"/>'),
+  doc: svg('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>', 20), sync: svg('<path d="M20 12a8 8 0 0 1-14.3 4.9M4 12a8 8 0 0 1 14.3-4.9"/><path d="M18.5 3v4.2h-4.2M5.5 21v-4.2h4.2"/>', 18), cross: svg('<path d="M7 7l10 10M17 7L7 17"/>'),
 };
 const THEMES = ['daylight', 'paper', 'mint', 'slate', 'midnight'];
 
@@ -429,6 +430,59 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
     if (n) toast(t(`${n} 篇文档在两台设备上都改过，两份都保留了`, `${n} document(s) changed on two devices; both versions kept`));
   });
   api.syncConfig().then((c) => showSync(c.status));
+
+  // ---------- pull the library down to sync ----------
+  // Touch events (not pointer events): at the top of the list the finger's move is ours, so the
+  // page does not bounce; the list follows the finger with some resistance, the arrows turn, and
+  // past the line a light tap says "release now". Releasing there syncs; the result shows briefly.
+  const pull = el('div', 'm-pull', `<span class="m-pull-icon">${I.sync}</span><span class="m-pull-text"></span>`);
+  lib.prepend(pull);
+  const pullText = pull.querySelector('.m-pull-text');
+  const PULL = 64, PULL_MAX = 110, PULL_HOLD = 52;
+  let py0 = null, px0 = 0, pulled = 0, armed = false, pullBusy = false;
+  function setPull(d, glide) {
+    lib.classList.toggle('m-pulling', !glide);
+    lib.style.setProperty('--pull', d + 'px');
+    pull.style.setProperty('--p', Math.min(1, d / PULL).toFixed(3));
+  }
+  const pullDone = () => { py0 = null; if (!pullBusy) setPull(0, true); };
+  lib.addEventListener('touchstart', (e) => {
+    py0 = null;
+    if (pullBusy || lib.scrollTop > 0 || e.touches.length !== 1 || (e.target.closest && e.target.closest('input, textarea, .m-swipe.open'))) return;
+    py0 = e.touches[0].clientY; px0 = e.touches[0].clientX; pulled = 0; armed = false;
+  }, { passive: true });
+  lib.addEventListener('touchmove', (e) => {
+    if (py0 == null) return;
+    const dy = e.touches[0].clientY - py0, dx = e.touches[0].clientX - px0;
+    if (!pulled && (dy <= 0 || Math.abs(dx) > Math.abs(dy) || lib.scrollTop > 0)) { py0 = null; return; } // scrolling, or swiping a row
+    e.preventDefault();
+    pulled = Math.max(0, Math.min(PULL_MAX, dy * 0.5));
+    setPull(pulled);
+    if ((pulled >= PULL) !== armed) {
+      armed = pulled >= PULL;
+      if (armed && native) Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+    }
+    pull.classList.toggle('armed', armed);
+    pullText.textContent = armed ? t('松开立即同步', 'Release to sync') : t('下拉同步', 'Pull to sync');
+  }, { passive: false });
+  lib.addEventListener('touchcancel', pullDone);
+  lib.addEventListener('touchend', async () => {
+    if (py0 == null) return;
+    py0 = null;
+    pull.classList.remove('armed');
+    if (!armed) { setPull(0, true); return; }
+    if (syncState.state === 'off') { setPull(0, true); ctx.settingsUI.open(); return; } // not connected: say where to connect
+    pullBusy = true;
+    pull.classList.add('busy');
+    pullText.textContent = t('正在同步…', 'Syncing…');
+    setPull(PULL_HOLD, true);
+    const started = Date.now();
+    const st = await api.syncNow();
+    await new Promise((r) => setTimeout(r, Math.max(0, 600 - (Date.now() - started)))); // long enough to be seen
+    pull.classList.remove('busy');
+    pullText.textContent = syncText(st);
+    setTimeout(() => { setPull(0, true); setTimeout(() => { pullBusy = false; }, 350); }, 700);
+  });
 
   layout();
   updateBar();

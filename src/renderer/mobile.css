@@ -81,6 +81,17 @@ body.m-tablet .m-sheet { left: 50%; right: auto; width: 520px; margin-left: -260
 #m-lib { position: fixed; inset: 0; z-index: 50; background: var(--side-bg); overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding: calc(var(--sat) + 8px) 0 calc(110px + var(--sab)); display: none; }
 body.m-lib #m-lib { display: block; }
+/* pull to sync: the list follows the finger (--pull, set in ui.js); the line above it says what happens */
+#m-lib { overscroll-behavior-y: none; }
+#m-lib > :not(.m-pull):not(.m-fab) { transform: translateY(var(--pull, 0px)); transition: transform .38s cubic-bezier(.22, 1, .36, 1); }
+#m-lib.m-pulling > :not(.m-pull):not(.m-fab) { transition: none; }
+.m-pull { --p: 0; position: absolute; left: 0; right: 0; top: calc(var(--sat) + 8px); height: var(--pull, 0px); overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 8px;
+  color: var(--muted); font: 500 13px var(--ui-font); pointer-events: none; opacity: var(--p); transition: height .38s cubic-bezier(.22, 1, .36, 1); }
+#m-lib.m-pulling .m-pull { transition: none; }
+.m-pull-icon { display: grid; transform: rotate(calc(var(--p) * 300deg)); color: var(--muted); }
+.m-pull.armed .m-pull-icon, .m-pull.busy .m-pull-icon { color: var(--accent); }
+.m-pull.busy .m-pull-icon { animation: m-spin .9s linear infinite; }
+@keyframes m-spin { to { transform: rotate(360deg); } }
 body.m-lib #m-bar, body.m-lib #m-tools { display: none; }
 #m-lib > h1 { font: 600 32px/1.15 var(--serif-font); padding: 4px 20px 0; letter-spacing: -.01em; }
 .m-lib-top { display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 20px; }

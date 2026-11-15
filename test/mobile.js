@@ -289,6 +289,33 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
     assert(!fs.readdirSync(data).some((n) => /冲突/.test(n)), 'no conflict copies: nothing was lost or doubled');
     step('the open document follows a change from another device; an edit here goes up');
 
+    // pull the library down to sync: a short pull springs back, a long one syncs
+    await until(async () => W(() => document.body.classList.contains('m-lib')), 'back in the library');
+    const pullBy = (dist) => W(async (dist) => {
+      const lib = document.querySelector('#m-lib'); lib.scrollTop = 0;
+      const at = (y) => new Touch({ identifier: 1, target: lib, clientX: 200, clientY: y });
+      const fire = (type, y, list = true) => lib.dispatchEvent(new TouchEvent(type, { touches: list ? [at(y)] : [], changedTouches: [at(y)], bubbles: true, cancelable: true }));
+      fire('touchstart', 150);
+      let blocked = true;
+      for (let y = 160; y <= 150 + dist; y += 10) { const ev = new TouchEvent('touchmove', { touches: [at(y)], changedTouches: [at(y)], bubbles: true, cancelable: true }); lib.dispatchEvent(ev); blocked = blocked && ev.defaultPrevented; }
+      const seen = { text: document.querySelector('.m-pull-text').textContent, offset: getComputedStyle(lib).getPropertyValue('--pull').trim(), blocked };
+      fire('touchend', 150 + dist, false);
+      return seen;
+    }, dist);
+    assert.strictEqual((await otherDevice('下拉刷新.md', '# 下拉刷新\n', { 'If-None-Match': '*' })).status, 200);
+    let seen = await pullBy(60);
+    assert.deepStrictEqual([seen.text, seen.offset, seen.blocked], ['下拉同步', '30px', true], 'a short pull: the list follows the finger, the page does not bounce');
+    await sleep(500);
+    assert.strictEqual(await W(() => getComputedStyle(document.querySelector('#m-lib')).getPropertyValue('--pull').trim()), '0px', 'and springs back');
+    assert.strictEqual(await page.locator('#m-lib .m-doc', { hasText: '下拉刷新' }).count(), 0, 'without syncing');
+    seen = await pullBy(180);
+    assert.strictEqual(seen.text, '松开立即同步', 'past the line it says release');
+    await until(async () => /正在同步|已同步/.test(await page.locator('.m-pull-text').innerText()), 'it syncs');
+    await page.screenshot({ path: path.join(shots, 'm8-pull-sync.png') });
+    await until(async () => (await page.locator('#m-lib .m-doc', { hasText: '下拉刷新' }).count()) === 1, 'the new document is in the list');
+    await until(async () => W(() => getComputedStyle(document.querySelector('#m-lib')).getPropertyValue('--pull').trim() === '0px'), 'the list settles back');
+    step('pull the library down to sync: a short pull springs back, a long one syncs and shows the result');
+
     assert.strictEqual(await W(async () => (await window.Capacitor.Plugins.Preferences.get({ key: 'keychain:syncToken' })).value), TOKEN, 'the token is in the (emulated) Keychain');
     assert(!(await W(async () => (await window.Capacitor.Plugins.Preferences.get({ key: 'settings' })).value)).includes(TOKEN), 'and not in the settings');
     await page.close();
