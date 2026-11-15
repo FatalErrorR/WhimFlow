@@ -58,6 +58,8 @@ function selectedLines(state) {
 const QUOTE_RE = /^(\s*)>\s?/;
 const LIST_RE = /^(\s*)([-*+][ \t]+\[[ xX]\][ \t]+|[-*+][ \t]+|\d+[.)][ \t]+)/;
 const HEADING_RE = /^(\s*(?:>\s?)*)(#{1,6})[ \t]+/;
+// the markup at the start of a line: indentation, quote marks, then a heading, task, bullet or number marker
+const MARKER_RE = /^(\s*(?:>\s?)*)(#{1,6}[ \t]+|[-*+][ \t]+\[[ xX]\][ \t]+|[-*+][ \t]+|\d+[.)][ \t]+)?/;
 
 function editLines(view, fn) {
   const { state } = view;
@@ -67,8 +69,9 @@ function editLines(view, fn) {
     if (next != null && next !== line.text) changes.push({ from: line.from, to: line.to, insert: next });
   });
   if (!changes.length) return true;
-  // a caret keeps its distance from the end of its line, so it stays by the same text,
-  // and on an empty line it ends up after the new marker ("- [ ] |"), ready to type
+  // a caret keeps its distance from the end of its line, so it stays by the same text, but never
+  // lands in or before the new marker: on an empty line, or from the start of the line (where it
+  // sits before "## " the editor hides), it ends up after it ("### |"), ready to type
   const sel = state.selection.main;
   let selection;
   if (sel.empty) {
@@ -76,7 +79,9 @@ function editLines(view, fn) {
     const c = changes.find((x) => x.from === line.from);
     if (c) {
       const before = changes.filter((x) => x.from < line.from).reduce((n, x) => n + x.insert.length - (x.to - x.from), 0);
-      selection = { anchor: line.from + before + Math.max(0, c.insert.length - (line.to - sel.head)) };
+      const start = line.from + before;
+      const afterMarker = start + MARKER_RE.exec(c.insert)[0].length;
+      selection = { anchor: Math.max(afterMarker, start + Math.max(0, c.insert.length - (line.to - sel.head))) };
     }
   }
   view.dispatch(state.update({ changes, selection, scrollIntoView: true, userEvent: 'input.format' }));

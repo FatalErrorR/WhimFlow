@@ -201,6 +201,23 @@ Closing words.
   await page.evaluate(() => window.api.setSetting('fontSize', 17));
   step('settings');
 
+  // ---- ⌘1…⌘6: the caret ends up after the heading marks, never in or before them ----
+  {
+    const original = await val();
+    const trial = async (text, caret, key) => {
+      await page.evaluate(([t, c]) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t }, selection: { anchor: c } }); v.focus(); }, [text, caret]);
+      await page.keyboard.press(`${mod}+${key}`);
+      await page.waitForTimeout(80);
+      return page.evaluate(() => { const v = window.__whimflow.editor.view, h = v.state.selection.main.head, l = v.state.doc.lineAt(h); return l.text.slice(0, h - l.from) + '|' + l.text.slice(h - l.from); });
+    };
+    assert.deepStrictEqual([
+      await trial('', 0, '3'), await trial('标题', 0, '3'), await trial('标题', 2, '3'), await trial('标题文字', 2, '3'),
+      await trial('## 标题', 0, '3'), await trial('## 标题', 3, '3'), await trial('## 标题', 5, '3'), await trial('### ', 4, '2'), await trial('### 标题', 6, '0'),
+    ], ['### |', '### |标题', '### 标题|', '### 标题|文字', '### |标题', '### |标题', '### 标题|', '## |', '标题|']);
+    await page.evaluate((t) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } }); }, original);
+  }
+  step('⌘1…⌘6 put the caret after the heading marks');
+
   // ---- history (open snapshot + saves) ----
   await page.keyboard.press(`${mod}+s`);
   await page.waitForFunction(() => !window.__whimflow.state.dirty);
