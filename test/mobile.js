@@ -99,6 +99,44 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   assert(!(await page.locator('#m-sheetwrap .m-sheet').isVisible()), 'and closes on a choice');
   step('sheet: outline jumps to a heading');
 
+  // the mind map under the text: the text above, the map below
+  await page.locator('#m-bar .m-more').tap();
+  await page.locator('.m-tabs button[data-tab="mindmap"]').tap();
+  await page.waitForSelector('#m-map .mm-node');
+  await sleep(450); // the panel slides up
+  const mapGeo = () => W(() => {
+    const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+    return { main: r('#main'), map: r('#m-map'), vh: innerHeight, inPanel: !!document.querySelector('#m-map #mindmap'), folded: document.querySelector('#m-map').classList.contains('folded'),
+      nodes: [...document.querySelectorAll('#m-map .mm-node text')].map((x) => x.textContent) };
+  });
+  let geo = await mapGeo();
+  assert(geo.inPanel && !(await body('m-read')), 'the map docks under the text, which stays in writing mode');
+  assert(geo.main.bottom <= geo.map.top + 1 && geo.main.height > 150, 'text above, map below: ' + JSON.stringify([geo.main.bottom, geo.map.top]));
+  assert(Math.abs(geo.map.height - geo.vh * 0.36) < 4, 'a third of the screen to start');
+  assert(geo.nodes.includes('周末'), 'the headings are its nodes');
+  await page.locator('#m-map .mm-node', { hasText: '周末' }).click();
+  assert(await W(() => document.querySelector('#m-map .mm-node.selected text').textContent === '周末'), 'a node can be picked');
+  const grab = await page.locator('#m-map .m-map-grab').boundingBox();
+  await page.mouse.move(grab.x + 60, grab.y + 20); await page.mouse.down();
+  for (let i = 1; i <= 10; i++) await page.mouse.move(grab.x + 60, grab.y + 20 - i * 16);
+  await page.mouse.up(); await sleep(500);
+  geo = await mapGeo();
+  assert(Math.abs(geo.map.height - geo.vh * 0.55) < 4 && geo.main.bottom <= geo.map.top + 1, 'dragged up: it settles at half the screen, the text above it');
+  await page.screenshot({ path: path.join(shots, 'm4b-mindmap.png') });
+  await page.locator('#m-map .m-map-label').click(); await sleep(450);
+  geo = await mapGeo();
+  assert(geo.folded && geo.map.height < 50, 'a tap on its edge folds it');
+  await page.locator('#m-map .m-map-label').click(); await sleep(450);
+  geo = await mapGeo();
+  assert(!geo.folded && Math.abs(geo.map.height - geo.vh * 0.55) < 4, 'and unfolds it to where it was');
+  assert.deepStrictEqual(await W(() => [localStorage.getItem('whimflow.mapOn'), localStorage.getItem('whimflow.mapHeight')]), ['1', String(Math.round(geo.vh * 0.55))], 'remembered for next time');
+  await W(() => document.body.classList.add('m-kb'));
+  assert(!(await page.locator('#m-map').isVisible()), 'it steps aside while the keyboard is up');
+  await W(() => document.body.classList.remove('m-kb'));
+  await page.locator('#m-map .m-map-close').click();
+  assert(!(await body('m-map')) && await W(() => !!document.querySelector('#right #mindmap')), 'closed: the map goes back where it was');
+  step('mind map under the text: docks, picks a node, drags between stops, folds, steps aside for the keyboard, closes');
+
   // back to the library: saved, listed, renamed
   await page.locator('#m-bar .m-back').tap();
   await page.waitForFunction(() => document.body.classList.contains('m-lib') && document.querySelector('#m-lib .m-doc'));

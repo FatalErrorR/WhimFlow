@@ -34,7 +34,7 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
     if (wide.matches) { body.classList.remove('m-read'); ctx.sidebar.setSidebar(true, 'files'); }
     else { ctx.sidebar.setSidebar(false); if (!body.classList.contains('m-read')) ctx.right.setRight(false); }
   }
-  wide.addEventListener('change', layout);
+  wide.addEventListener('change', () => { layout(); if (wide.matches && mapOn) dockMap(false, true); else if (!wide.matches && mapWanted()) dockMap(true); });
 
   // ---------- top bar ----------
   const bar = el('header', '', `
@@ -147,7 +147,13 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
     sheet.hidden = false;
   }
   sheet.querySelectorAll('.m-tabs button').forEach((b) => {
-    b.onclick = () => { if (b.dataset.tab === 'outline') return; closeSheet(); setMode('read', b.dataset.tab); if (wide.matches) ctx.right.setRight(true, b.dataset.tab); };
+    b.onclick = () => {
+      if (b.dataset.tab === 'outline') return;
+      closeSheet();
+      if (b.dataset.tab === 'mindmap' && !wide.matches) { dockMap(true); return; } // a phone: under the text
+      setMode('read', b.dataset.tab);
+      if (wide.matches) ctx.right.setRight(true, b.dataset.tab);
+    };
   });
   sheet.querySelectorAll('.m-actions button').forEach((b) => {
     b.onclick = async () => {
@@ -430,6 +436,63 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
     if (n) toast(t(`${n} 篇文档在两台设备上都改过，两份都保留了`, `${n} document(s) changed on two devices; both versions kept`));
   });
   api.syncConfig().then((c) => showSync(c.status));
+
+  // ---------- the mind map under the text (phone): the text above, the map below ----------
+  // The desktop's map itself (mindmap.js) moves into this panel, so it renders, follows and edits
+  // the same way. Drag the top edge between folded, a third and a half of the screen; a tap on it
+  // folds or unfolds; × closes. Tapping a node scrolls the text there; the section being read is
+  // highlighted (and slid into view). While the keyboard is up the panel steps aside.
+  const map = el('section', '', `<div class="m-map-grab"><span class="m-map-handle"></span><span class="m-map-label">${esc(t('思维导图', 'Mind map'))}</span>
+    <button class="m-map-close" aria-label="${esc(t('关闭思维导图', 'Close the mind map'))}">${I.cross}</button></div><div class="m-map-body"></div>`);
+  map.id = 'm-map';
+  body.append(map);
+  const mmPane = document.getElementById('mindmap'), mmHome = mmPane.parentNode;
+  const FOLDED = 44;
+  const mapStops = () => [FOLDED, Math.round(innerHeight * 0.36), Math.round(innerHeight * 0.55)];
+  let mapOn = false, mapH = +localStorage.getItem('whimflow.mapHeight') || 0;
+  const mapWanted = () => localStorage.getItem('whimflow.mapOn') === '1';
+  function setMapHeight(h, glide) {
+    body.classList.toggle('m-map-drag', !glide);
+    document.documentElement.style.setProperty('--map-h', Math.round(h) + 'px');
+    map.classList.toggle('folded', h <= FOLDED + 4);
+  }
+  function dockMap(on, keepWish) {
+    mapOn = !!on && !wide.matches;
+    body.classList.toggle('m-map', mapOn);
+    if (mapOn) {
+      map.querySelector('.m-map-body').append(mmPane);
+      setMapHeight(mapH > FOLDED + 4 ? mapH : mapStops()[1], true);
+    } else if (mmPane.parentNode !== mmHome) mmHome.append(mmPane);
+    ctx.mindmap.setDocked(mapOn);
+    if (!keepWish) localStorage.setItem('whimflow.mapOn', mapOn ? '1' : '');
+  }
+  const grab = map.querySelector('.m-map-grab');
+  let gy = null, gh = 0, gMoved = false;
+  grab.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.m-map-close')) return;
+    gy = e.clientY; gh = map.getBoundingClientRect().height - (parseFloat(getComputedStyle(map).paddingBottom) || 0); gMoved = false;
+    try { grab.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  grab.addEventListener('pointermove', (e) => {
+    if (gy == null) return;
+    const d = gy - e.clientY;
+    if (Math.abs(d) > 4) gMoved = true;
+    if (gMoved) setMapHeight(Math.max(FOLDED, Math.min(innerHeight * 0.7, gh + d)));
+  });
+  const grabEnd = () => {
+    if (gy == null) return;
+    gy = null;
+    const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--map-h')) || gh;
+    const stops = mapStops();
+    const h = gMoved ? stops.reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a)) // to the nearest stop
+      : cur <= FOLDED + 4 ? (mapH > FOLDED + 4 ? mapH : stops[1]) : FOLDED;                       // a tap folds / unfolds
+    setMapHeight(h, true);
+    if (h > FOLDED + 4) { mapH = h; localStorage.setItem('whimflow.mapHeight', String(h)); }
+  };
+  grab.addEventListener('pointerup', grabEnd);
+  grab.addEventListener('pointercancel', grabEnd);
+  map.querySelector('.m-map-close').onclick = () => dockMap(false);
+  if (mapWanted() && !wide.matches) dockMap(true);
 
   // ---------- pull the library down to sync ----------
   // Touch events (not pointer events): at the top of the list the finger's move is ours, so the

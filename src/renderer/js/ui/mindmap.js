@@ -9,7 +9,9 @@ const COLORS = ['#c96442', '#6a8caf', '#7d8f69', '#bf8e4b', '#9a7aa0', '#5f9a96'
 export function initMindmap(ctx) {
   const { editor, state } = ctx;
   const mm = { tx: 24, ty: 0, k: 1, collapsed: new Set(), fitted: false, nodes: [], bbox: null, activeIdx: -1, selected: null, justDragged: false };
-  const visible = () => ctx.right.isOpen() && ctx.right.tab() === 'mindmap';
+  // shown in the right panel, or docked under the text (the phone's split view, see mobile/ui.js)
+  let docked = false;
+  const visible = () => docked || (ctx.right.isOpen() && ctx.right.tab() === 'mindmap');
   const measure = document.createElement('canvas').getContext('2d');
   const cssFont = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || 'sans-serif';
   const textWidth = (s, font) => { measure.font = font; return measure.measureText(s).width; };
@@ -134,6 +136,17 @@ export function initMindmap(ctx) {
     let target = idx;
     while (target > 0 && !shown.has(target)) target--;
     document.querySelectorAll('.mm-node').forEach((g) => g.classList.toggle('active', +g.dataset.idx === target));
+    if (docked) { const n = mm.nodes.find((x) => x.idx === target); if (n) keepInView(n); }
+  }
+  /** Docked, the map is small: the section being read is slid into view if it is not. */
+  function keepInView(n) {
+    const box = $('#mindmap').getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const m = 20, x = n.x * mm.k + mm.tx, w = n.w * mm.k, y = n.y * mm.k + mm.ty;
+    let dx = 0, dy = 0;
+    if (x < m) dx = m - x; else if (x + w > box.width - m) dx = Math.max(m - x, box.width - m - (x + w));
+    if (y < m) dy = m - y; else if (y > box.height - m) dy = box.height - m - y;
+    if (dx || dy) { mm.tx += dx; mm.ty += dy; apply(true); }
   }
   function select(idx) {
     mm.selected = idx;
@@ -302,5 +315,11 @@ export function initMindmap(ctx) {
   $('#mm-hint').textContent = t('双击改名 · 拖动重组 · ↵ 同级 · ⇥ 子级 · ⌘Z 撤销', 'Double-click to rename · drag to move · ↵ sibling · ⇥ child · ⌘Z undo');
   new ResizeObserver(() => { if (visible() && mm.bbox) fit(false); }).observe($('#mindmap'));
 
-  return { render, fit, highlight, reset: () => { mm.fitted = false; }, bbox: () => mm.bbox, apply };
+  /** Dock the map under the text (true) or give it back to the right panel (false). */
+  function setDocked(on) {
+    docked = !!on;
+    mm.fitted = false;
+    if (docked) { render(); highlight(mm.activeIdx); }
+  }
+  return { render, fit, highlight, reset: () => { mm.fitted = false; }, bbox: () => mm.bbox, apply, setDocked, isDocked: () => docked };
 }
