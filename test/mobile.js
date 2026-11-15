@@ -130,12 +130,27 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   geo = await mapGeo();
   assert(!geo.folded && Math.abs(geo.map.height - geo.vh * 0.55) < 4, 'and unfolds it to where it was');
   assert.deepStrictEqual(await W(() => [localStorage.getItem('whimflow.mapOn'), localStorage.getItem('whimflow.mapHeight')]), ['1', String(Math.round(geo.vh * 0.55))], 'remembered for next time');
-  await W(() => document.body.classList.add('m-kb'));
-  assert(!(await page.locator('#m-map').isVisible()), 'it steps aside while the keyboard is up');
-  await W(() => document.body.classList.remove('m-kb'));
+  // writing with the keyboard up: still in sight, smaller, above the formatting bar and the keyboard
+  await W(() => { document.documentElement.style.setProperty('--kb', '300px'); document.body.classList.add('m-kb', 'm-editing'); });
+  await sleep(450);
+  geo = await mapGeo();
+  const tools = await W(() => document.querySelector('#m-tools').getBoundingClientRect().top);
+  assert(geo.map.height > 100 && Math.abs(geo.map.bottom - tools) < 2, 'typing: the map sits right above the formatting bar: ' + JSON.stringify([geo.map.bottom, tools]));
+  assert(geo.main.bottom <= geo.map.top + 1 && geo.main.height > 80, 'with the text above it');
+  await page.screenshot({ path: path.join(shots, 'm4c-mindmap-typing.png') });
+  await W(() => { document.documentElement.style.setProperty('--kb', '0px'); document.body.classList.remove('m-kb', 'm-editing'); });
+  // reading: the final view above, the map below
+  await page.locator('#m-bar .m-seg button[data-mode="read"]').tap();
+  await sleep(450);
+  geo = await mapGeo();
+  const pv = await W(() => document.querySelector('#right').getBoundingClientRect());
+  assert(await body('m-read') && geo.inPanel && geo.map.height > 100 && pv.bottom <= geo.map.top + 1 && pv.height > 150, 'reading: the final view above, the map below');
+  await page.screenshot({ path: path.join(shots, 'm4d-mindmap-reading.png') });
+  await page.locator('#m-bar .m-seg button[data-mode="write"]').tap();
+  await W(() => document.querySelector('.cm-content').blur());
   await page.locator('#m-map .m-map-close').click();
   assert(!(await body('m-map')) && await W(() => !!document.querySelector('#right #mindmap')), 'closed: the map goes back where it was');
-  step('mind map under the text: docks, picks a node, drags between stops, folds, steps aside for the keyboard, closes');
+  step('mind map under the text, writing (keyboard up too) and reading: docks, picks a node, drags between stops, folds, closes');
 
   // back to the library: saved, listed, renamed
   await page.locator('#m-bar .m-back').tap();

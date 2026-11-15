@@ -178,7 +178,7 @@ body.m-phone .sync-actions .set-btn { padding: 8px 16px; font-size: 14px; }
 #m-map { display: none; }
 body.m-phone.m-map:not(.m-lib) #m-map { display: flex; flex-direction: column; position: fixed; left: 6px; right: 6px; bottom: 0; z-index: 30;
   height: calc(var(--map-h, 36vh) + var(--sab)); padding-bottom: var(--sab); background: var(--bg); border: 1px solid var(--border); border-bottom: 0;
-  border-radius: 20px 20px 0 0; box-shadow: 0 -8px 24px -16px rgba(60,45,25,.4); transition: height .34s cubic-bezier(.22, 1, .36, 1); overflow: hidden; }
+  border-radius: 20px 20px 0 0; box-shadow: 0 -8px 24px -16px rgba(60,45,25,.4); transition: height .34s cubic-bezier(.22, 1, .36, 1), bottom .25s ease; overflow: hidden; }
 body.m-phone.m-map:not(.m-lib) #app { padding-bottom: calc(var(--map-h, 36vh) + var(--sab) + 6px); transition: padding-bottom .34s cubic-bezier(.22, 1, .36, 1); }
 body.m-map-drag #m-map, body.m-map-drag #app { transition: none !important; }
 .m-map-grab { flex: none; position: relative; height: 44px; display: flex; align-items: center; gap: 8px; padding: 6px 6px 0 16px; touch-action: none; cursor: grab; }
@@ -192,7 +192,9 @@ body.m-map-drag #m-map, body.m-map-drag #app { transition: none !important; }
 #m-map #mm-svg { touch-action: none; }
 #m-map #mm-hint { display: none; }
 #m-map.folded .m-map-body { visibility: hidden; }
-/* typing: the keyboard needs the room */
-body.m-phone.m-map.m-kb #m-map { display: none; }
-body.m-phone.m-map.m-kb #app { padding-bottom: 0; }
+/* typing: the map stays in sight, a little smaller, just above the formatting bar and the keyboard */
+:root { --map-kb-h: min(var(--map-h, 36vh), 26vh); --tools-h: 0px; }
+body.m-editing.m-kb { --tools-h: 46px; }
+body.m-phone.m-map.m-kb:not(.m-lib) #m-map { bottom: calc(var(--kb) + var(--tools-h)); height: var(--map-kb-h); padding-bottom: 0; }
+body.m-phone.m-map.m-kb:not(.m-lib) #app { padding-bottom: calc(var(--kb) + var(--tools-h) + var(--map-kb-h) + 6px); }
 #m-map { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } /* dragging its edge must not select its label */
