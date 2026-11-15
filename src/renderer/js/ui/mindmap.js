@@ -84,7 +84,7 @@ export function initMindmap(ctx) {
       svgEl('text', { x: n.depth === 0 ? 16 : 11, y: n.h / 2 }, g).textContent = n.label;
       svgEl('title', {}, g).textContent = n.text;
       if (n.idx === mm.selected) g.classList.add('selected');
-      g.addEventListener('click', () => { if (mm.justDragged) return; select(n.idx); editor.scrollToHeading(n.idx); });
+      g.addEventListener('click', () => { if (mm.justDragged) return; select(n.idx); jumpTo(n.idx); });
       g.addEventListener('pointerdown', (e) => nodeDown(e, n, g));
       g.addEventListener('dblclick', (e) => { e.stopPropagation(); startRename(n.idx); });
       if (n.children.length) {
@@ -128,6 +128,14 @@ export function initMindmap(ctx) {
     const k = Math.max(0.2, Math.min(3, mm.k * f));
     mm.tx = cx - (cx - mm.tx) * (k / mm.k); mm.ty = cy - (cy - mm.ty) * (k / mm.k); mm.k = k;
     apply(false);
+  }
+  /** A node was tapped: the text goes there; so does the final view when it is the one on screen (a phone reading). */
+  function jumpTo(idx) {
+    editor.scrollToHeading(idx);
+    if (ctx.right.isOpen() && ctx.right.tab() === 'preview' && ctx.right.scrollToLine) {
+      const h = editor.headings()[idx];
+      ctx.right.scrollToLine(h ? editor.getState().doc.lineAt(h.from).number : 1);
+    }
   }
   function highlight(idx) {
     mm.activeIdx = idx;

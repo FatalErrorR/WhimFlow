@@ -38,6 +38,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   const read = (p) => W((p) => window.api.mobile.read(p), p);
   const exists = (p) => W((p) => window.api.mobile.exists(p), p);
   const body = (cls) => W((c) => document.body.classList.contains(c), cls);
+  const until = async (fn, what, ms = 10000) => { for (let i = 0; i < ms / 100; i++) { if (await fn()) return; await sleep(100); } throw new Error('timed out waiting for: ' + what); };
 
   assert(await body('m-phone') && await body('m-lib'), 'a phone starts in the library');
   assert(/还没有文档/.test(await page.locator('#m-lib .m-empty').innerText()), 'which is empty at first');
@@ -114,6 +115,10 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   assert(geo.main.bottom <= geo.map.top + 1 && geo.main.height > 150, 'text above, map below: ' + JSON.stringify([geo.main.bottom, geo.map.top]));
   assert(Math.abs(geo.map.height - geo.vh * 0.36) < 4, 'a third of the screen to start');
   assert(geo.nodes.includes('周末'), 'the headings are its nodes');
+  await W(() => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: v.state.doc.length, insert: '\n\n## 新加的标题' } }); });
+  await page.waitForSelector('#m-map .mm-node:has-text("新加的标题")', { timeout: 3000 });
+  await W(() => { const v = window.__whimflow.editor.view, d = v.state.doc; v.dispatch({ changes: { from: d.length - '\n\n## 新加的标题'.length, to: d.length } }); });
+  await until(async () => (await page.locator('#m-map .mm-node', { hasText: '新加的标题' }).count()) === 0, 'and goes when the heading goes', 3000);
   await page.locator('#m-map .mm-node', { hasText: '周末' }).click();
   assert(await W(() => document.querySelector('#m-map .mm-node.selected text').textContent === '周末'), 'a node can be picked');
   const grab = await page.locator('#m-map .m-map-grab').boundingBox();
@@ -130,15 +135,24 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   geo = await mapGeo();
   assert(!geo.folded && Math.abs(geo.map.height - geo.vh * 0.55) < 4, 'and unfolds it to where it was');
   assert.deepStrictEqual(await W(() => [localStorage.getItem('whimflow.mapOn'), localStorage.getItem('whimflow.mapHeight')]), ['1', String(Math.round(geo.vh * 0.55))], 'remembered for next time');
-  // writing with the keyboard up: still in sight, smaller, above the formatting bar and the keyboard
+  // the keyboard comes up: the map folds to its edge above the formatting bar; pulled up, it opens in the room left
   await W(() => { document.documentElement.style.setProperty('--kb', '300px'); document.body.classList.add('m-kb', 'm-editing'); });
   await sleep(450);
   geo = await mapGeo();
   const tools = await W(() => document.querySelector('#m-tools').getBoundingClientRect().top);
-  assert(geo.map.height > 100 && Math.abs(geo.map.bottom - tools) < 2, 'typing: the map sits right above the formatting bar: ' + JSON.stringify([geo.map.bottom, tools]));
-  assert(geo.main.bottom <= geo.map.top + 1 && geo.main.height > 80, 'with the text above it');
+  assert(geo.folded && geo.map.height < 50 && Math.abs(geo.map.bottom - tools) < 2, 'typing: folded, right above the formatting bar: ' + JSON.stringify([geo.map.height, geo.map.bottom, tools]));
+  assert(geo.main.bottom <= geo.map.top + 1, 'the text above it');
+  const edge = await page.locator('#m-map .m-map-grab').boundingBox();
+  await page.mouse.move(edge.x + 60, edge.y + 20); await page.mouse.down();
+  for (let i = 1; i <= 12; i++) await page.mouse.move(edge.x + 60, edge.y + 20 - i * 20);
+  await page.mouse.up(); await sleep(450);
+  geo = await mapGeo();
+  assert(!geo.folded && geo.map.height > 60 && Math.abs(geo.map.bottom - tools) < 2 && geo.main.bottom <= geo.map.top + 1 && geo.main.height >= 110, 'pulled up while typing: it opens, the text keeps some room: ' + JSON.stringify([geo.map.height, geo.main.height]));
   await page.screenshot({ path: path.join(shots, 'm4c-mindmap-typing.png') });
   await W(() => { document.documentElement.style.setProperty('--kb', '0px'); document.body.classList.remove('m-kb', 'm-editing'); });
+  await sleep(450);
+  geo = await mapGeo();
+  assert(Math.abs(geo.map.height - geo.vh * 0.55) < 4, 'the keyboard goes down: back to its height');
   // reading: the final view above, the map below
   await page.locator('#m-bar .m-seg button[data-mode="read"]').tap();
   await sleep(450);
@@ -146,11 +160,22 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   const pv = await W(() => document.querySelector('#right').getBoundingClientRect());
   assert(await body('m-read') && geo.inPanel && geo.map.height > 100 && pv.bottom <= geo.map.top + 1 && pv.height > 150, 'reading: the final view above, the map below');
   await page.screenshot({ path: path.join(shots, 'm4d-mindmap-reading.png') });
+  // reading: a node tapped in the map brings the final view to that heading
+  const textBefore = await W(() => window.__whimflow.editor.getValue());
+  await W(() => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: v.state.doc.length, insert: '\n\n' + '一段很长的正文。\n\n'.repeat(40) + '## 末尾\n\n结尾的话' } }); });
+  await page.waitForSelector('#m-map .mm-node:has-text("末尾")', { timeout: 5000 });
+  await sleep(400);
+  const headTop = (name) => W((name) => { const h = [...document.querySelectorAll('#preview-doc h2')].find((x) => x.textContent.includes(name)); return Math.round(h.getBoundingClientRect().top - document.querySelector('#preview').getBoundingClientRect().top); }, name);
+  await page.locator('#m-map .mm-node', { hasText: '末尾' }).click();
+  await until(async () => Math.abs(await headTop('末尾')) < 40, 'the final view glides to 末尾', 3000);
+  await page.locator('#m-map .mm-node', { hasText: '周末' }).click();
+  await until(async () => Math.abs(await headTop('周末')) < 40, 'and back up to 周末', 3000);
+  await W((t) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } }); }, textBefore);
   await page.locator('#m-bar .m-seg button[data-mode="write"]').tap();
   await W(() => document.querySelector('.cm-content').blur());
   await page.locator('#m-map .m-map-close').click();
   assert(!(await body('m-map')) && await W(() => !!document.querySelector('#right #mindmap')), 'closed: the map goes back where it was');
-  step('mind map under the text, writing (keyboard up too) and reading: docks, picks a node, drags between stops, folds, closes');
+  step('mind map under the text, writing and reading: docks, picks a node, drags, folds; folds for the keyboard and opens when pulled; closes');
 
   // back to the library: saved, listed, renamed
   await page.locator('#m-bar .m-back').tap();
@@ -293,7 +318,6 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   });
   const syncUrl = await new Promise((resolve) => syncProc.stdout.on('data', (d) => { const m = /on 127\.0\.0\.1:(\d+)/.exec(String(d)); if (m) resolve(`http://127.0.0.1:${m[1]}`); }));
   const onServer = (rel) => (fs.existsSync(path.join(data, ...rel.split('/'))) ? fs.readFileSync(path.join(data, ...rel.split('/'))) : null);
-  const until = async (fn, what, ms = 10000) => { for (let i = 0; i < ms / 100; i++) { if (await fn()) return; await sleep(100); } throw new Error('timed out waiting for: ' + what); };
   const otherDevice = (rel, body, headers) => fetch(syncUrl + '/v1/file?path=' + encodeURIComponent(rel), { method: 'PUT', body, headers: { Authorization: 'Bearer ' + TOKEN, ...headers } });
   try {
     const iphone2 = await browser.newContext({ ...devices['iPhone 15'], locale: 'zh-CN' });

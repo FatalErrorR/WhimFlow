@@ -192,9 +192,10 @@ body.m-map-drag #m-map, body.m-map-drag #app { transition: none !important; }
 #m-map #mm-svg { touch-action: none; }
 #m-map #mm-hint { display: none; }
 #m-map.folded .m-map-body { visibility: hidden; }
-/* typing: the map stays in sight, a little smaller, just above the formatting bar and the keyboard */
-:root { --map-kb-h: min(var(--map-h, 36vh), 26vh); --tools-h: 0px; }
+/* typing: the map folds to its edge just above the formatting bar and the keyboard (ui.js folds it);
+   pulled up, it opens into the room left above them */
+:root { --tools-h: 0px; }
 body.m-editing.m-kb { --tools-h: 46px; }
-body.m-phone.m-map.m-kb:not(.m-lib) #m-map { bottom: calc(var(--kb) + var(--tools-h)); height: var(--map-kb-h); padding-bottom: 0; }
-body.m-phone.m-map.m-kb:not(.m-lib) #app { padding-bottom: calc(var(--kb) + var(--tools-h) + var(--map-kb-h) + 6px); }
+body.m-phone.m-map.m-kb:not(.m-lib) #m-map { bottom: calc(var(--kb) + var(--tools-h)); height: var(--map-h); padding-bottom: 0; }
+body.m-phone.m-map.m-kb:not(.m-lib) #app { padding-bottom: calc(var(--kb) + var(--tools-h) + var(--map-h) + 6px); }
 #m-map { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } /* dragging its edge must not select its label */

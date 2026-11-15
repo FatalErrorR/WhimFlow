@@ -448,7 +448,13 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
   body.append(map);
   const mmPane = document.getElementById('mindmap'), mmHome = mmPane.parentNode;
   const FOLDED = 44;
-  const mapStops = () => [FOLDED, Math.round(innerHeight * 0.36), Math.round(innerHeight * 0.55)];
+  const cssPx = (v) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(v)) || 0;
+  const typing = () => body.classList.contains('m-kb');
+  // the room the map may take: with the keyboard up, what is left above it and the formatting bar,
+  // keeping about 120 px of text in sight
+  const mapRoom = () => (typing() ? Math.max(FOLDED, innerHeight - cssPx('--kb') - (body.classList.contains('m-editing') ? 46 : 0) - cssPx('--m-bar') - cssPx('--sat') - 120) : innerHeight * 0.7);
+  const mapStops = () => (typing() ? [FOLDED, Math.round(Math.max(FOLDED, mapRoom() * 0.55)), Math.round(mapRoom())]
+    : [FOLDED, Math.round(innerHeight * 0.36), Math.round(innerHeight * 0.55)]);
   let mapOn = false, mapH = +localStorage.getItem('whimflow.mapHeight') || 0;
   const mapWanted = () => localStorage.getItem('whimflow.mapOn') === '1';
   function setMapHeight(h, glide) {
@@ -477,7 +483,7 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
     if (gy == null) return;
     const d = gy - e.clientY;
     if (Math.abs(d) > 4) gMoved = true;
-    if (gMoved) setMapHeight(Math.max(FOLDED, Math.min(innerHeight * 0.7, gh + d)));
+    if (gMoved) setMapHeight(Math.max(FOLDED, Math.min(mapRoom(), gh + d)));
   });
   const grabEnd = () => {
     if (gy == null) return;
@@ -487,8 +493,17 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
     const h = gMoved ? stops.reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a)) // to the nearest stop
       : cur <= FOLDED + 4 ? (mapH > FOLDED + 4 ? mapH : stops[1]) : FOLDED;                       // a tap folds / unfolds
     setMapHeight(h, true);
-    if (h > FOLDED + 4) { mapH = h; localStorage.setItem('whimflow.mapHeight', String(h)); }
+    if (h > FOLDED + 4 && !typing()) { mapH = h; localStorage.setItem('whimflow.mapHeight', String(h)); } // what it opens to without the keyboard
   };
+  // the keyboard comes up: the map folds out of the way (pull it up to look); it goes down: back to its height
+  let wasTyping = false;
+  new MutationObserver(() => {
+    const now = typing();
+    if (now === wasTyping) return;
+    wasTyping = now;
+    if (!mapOn) return;
+    setMapHeight(now ? FOLDED : mapH > FOLDED + 4 ? mapH : mapStops()[1], true);
+  }).observe(body, { attributes: true, attributeFilter: ['class'] });
   grab.addEventListener('pointerup', grabEnd);
   grab.addEventListener('pointercancel', grabEnd);
   map.querySelector('.m-map-close').onclick = () => dockMap(false);

@@ -29,8 +29,10 @@ export function initRight(ctx) {
   let timer = null, seq = 0;
   /** `now`: render at once and from scratch (panel opened, theme changed); otherwise when typing allows. */
   function refresh(now) {
+    // the map docked under the text (a phone) follows the document whatever this panel shows
+    if (ctx.mindmap.isDocked && ctx.mindmap.isDocked()) ctx.mindmap.render();
     if (!right.open) return;
-    if (right.tab === 'mindmap') ctx.mindmap.render();
+    if (right.tab === 'mindmap') { if (!ctx.mindmap.isDocked || !ctx.mindmap.isDocked()) ctx.mindmap.render(); }
     else if (right.tab === 'history') { if (now) ctx.history.render(); }
     else if (now) { clearTimeout(timer); timer = null; renderPreview(true); }
     else schedulePreview();
@@ -282,5 +284,12 @@ export function initRight(ctx) {
     markHere();
   });
 
-  return { setRight, toggle, refresh, sync, isOpen: () => right.open, tab: () => right.tab };
+  /** Glide the final view to the block written at source line `line` (1-based), e.g. a heading picked in the mind map. */
+  function scrollToLine(line) {
+    let best = null;
+    for (const el of blocks()) { if (+el.dataset.line <= line) best = el; else break; }
+    wheelUntil = Date.now() + 900; // the final view leads while it glides, so the editor does not pull it back
+    pane.scrollTo({ top: best ? Math.max(0, topIn(best) - 16) : 0, behavior: 'smooth' });
+  }
+  return { setRight, toggle, refresh, sync, scrollToLine, isOpen: () => right.open, tab: () => right.tab };
 }
