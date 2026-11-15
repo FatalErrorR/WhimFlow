@@ -109,7 +109,7 @@ function createWindow(opts = {}) {
   // active document and "any unsaved document" respectively.
   const st = { win, docs: [], activeId: null, filePath: null, dirty: false, watchers: new Map(), drafts: new Set(),
     // the library, unless the window was opened for files (their own folder shows, as before)
-    folder: opts.folder || (opts.files && opts.files.length ? null : deskSync && deskSync.library) || null, init: opts, draftBase: recovery.newId(), pendingRecover: new Map() };
+    folder: opts.folder || null, init: opts, draftBase: recovery.newId(), pendingRecover: new Map() };
   wins.set(win.id, st);
   const id = win.id;
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -269,6 +269,8 @@ ipcMain.handle('init', (e) => {
   return {
     settings: shared(),
     folder: st.folder, zh, isMac, platform: process.platform, home: os.homedir(), library: deskSync ? deskSync.library : null,
+    // a blank window opens on the library; one opened for files or a folder shows those
+    showLibrary: !!deskSync && !st.folder && !((st.init.files || []).length) && !((st.init.recover || []).length),
   };
 });
 
@@ -384,7 +386,7 @@ handle('save', async (e, { content, saveAs, filePath, docId, rev, suggest, expec
     const m = /^#{1,6}\s+(.+)$/m.exec(content);
     const guess = (m ? m[1].replace(/[\\/:*?"<>|#`*_]/g, '').trim().slice(0, 60) : '') || t('未命名', 'Untitled');
     const r = await saveDialog(st, {
-      defaultPath: p || (suggest && path.isAbsolute(suggest) ? suggest : path.join(st.folder || app.getPath('documents'), guess + '.md')),
+      defaultPath: p || (suggest && path.isAbsolute(suggest) ? suggest : path.join(st.folder || (deskSync && deskSync.library) || app.getPath('documents'), guess + '.md')),
       filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }, { name: t('所有文件', 'All Files'), extensions: ['*'] }],
     });
     if (r.canceled || !r.filePath) return null;
@@ -494,11 +496,22 @@ handle('rename', async (_e, { from, name }) => {
 // Files dragged from Finder onto a folder of the sidebar: copied into it (inside the window's folder only)
 handle('import-files', async (e, { paths, dir }) => {
   const st = W(e);
-  if (!st || !st.folder || !dir || !fileops.isUnder(dir, st.folder) || !Array.isArray(paths)) return null;
+  const inside = (root) => !!root && fileops.isUnder(dir, root);
+  if (!st || !dir || !(inside(st.folder) || inside(deskSync && deskSync.library)) || !Array.isArray(paths)) return null;
   try { if (!(await fsp.stat(dir)).isDirectory()) return null; } catch (_) { return null; }
   const r = await importInto(dir, paths.filter((p) => typeof p === 'string' && path.isAbsolute(p)));
   if (r.added.length) libraryChanged(dir);
   return r;
+});
+
+// the folder the window shows under the library (it changes in the window: opening a file from
+// elsewhere shows that file's folder; closing it shows none)
+handle('set-folder', async (e, dir) => {
+  const st = W(e);
+  if (!st) return null;
+  if (dir == null) { st.folder = null; return null; }
+  try { if (typeof dir === 'string' && path.isAbsolute(dir) && (await fsp.stat(dir)).isDirectory()) st.folder = dir; } catch (_) { /* gone */ }
+  return st.folder;
 });
 
 // ---------- sync ----------
@@ -577,7 +590,7 @@ ipcMain.handle('tree-menu', (e, item) => {
     { label: t('新建文件', 'New File'), click: () => send('new-file') },
     { label: t('新建文件夹', 'New Folder'), click: () => send('new-folder') },
   ];
-  if (item.path !== st.folder) {
+  if (!item.root && item.path !== st.folder && !(deskSync && item.path === deskSync.library)) {
     tpl.push({ type: 'separator' },
       { label: t('重命名', 'Rename'), click: () => send('rename') },
       { label: t('移到废纸篓', 'Move to Trash'), click: () => send('trash') });
@@ -636,7 +649,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: t('打开…', 'Open…'), accelerator: 'CmdOrCtrl+O', click: () => openDialog(false) },
         { label: t('打开文件夹…', 'Open Folder…'), click: () => openDialog(true) },
-        { label: t('我的文件库', 'My Library'), accelerator: 'CmdOrCtrl+Shift+L', click: () => deskSync && openFolder(deskSync.library) },
+        { label: t('我的文件库', 'My Library'), accelerator: 'CmdOrCtrl+Shift+L', click: () => { if (!focused()) createWindow(); else send('library'); } },
         {
           label: t('打开最近使用', 'Open Recent'),
           submenu: [

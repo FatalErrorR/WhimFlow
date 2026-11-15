@@ -125,6 +125,13 @@ export function initPalette(ctx) {
     return i === q.length ? 1 : 0;
   };
   const flat = (nodes, out = []) => { for (const n of nodes) n.dir ? flat(n.children, out) : out.push(n); return out; };
+  /** Where a file is, under its root: "工作/2026", or "我的文件库 · 工作" for the library. */
+  const hintFor = (p) => {
+    const r = ctx.sidebar.roots().find((x) => p.startsWith(x.dir));
+    if (!r) return '';
+    const rel = dirname(p).slice(r.dir.length).replace(/^[\\/]/, '');
+    return r.lib ? t('我的文件库', 'My Library') + (rel ? ' · ' + rel : '') : rel;
+  };
 
   function open() {
     ctx.bubble.hide();
@@ -152,7 +159,7 @@ export function initPalette(ctx) {
     }
     for (const f of flat(ctx.sidebar.files())) {
       const score = fuzzy(q, f.name);
-      if (score && !ctx.docs.isOpen(f.path)) items.push({ score, kind: '≡', name: f.name, hint: state.folder ? dirname(f.path).replace(state.folder, '').replace(/^\//, '') : '', go: () => api.openInWindow(f.path, null, { preview: false }) });
+      if (score && !ctx.docs.isOpen(f.path)) items.push({ score, kind: '≡', name: f.name, hint: hintFor(f.path), go: () => api.openInWindow(f.path, null, { preview: false }) });
     }
     if (q) items.sort((a, b) => b.score - a.score);
     pal.items = items.slice(0, 60);

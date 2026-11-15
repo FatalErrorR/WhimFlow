@@ -504,7 +504,7 @@ export function createMobileApi(hooks = {}) {
     },
     async treeMenu(item) { hooks.treeMenu && hooks.treeMenu(item, (action) => emit('tree-action', action, item)); },
     async openExternal(url) { if (/^(https?|mailto):/i.test(url)) window.open(url, '_blank'); },
-    async openFolderDialog() {}, async reveal() {}, async revealUrl() {},
+    async openFolderDialog() {}, async reveal() {}, async revealUrl() {}, async setFolder() {},
     reply() {},
     copyText: (s) => { navigator.clipboard && navigator.clipboard.writeText(String(s)).catch(() => {}); },
     pathForFile: () => null,

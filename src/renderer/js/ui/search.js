@@ -25,7 +25,8 @@ export function initSearch(ctx) {
     const q = input.value;
     const my = ++seq;
     results.textContent = '';
-    if (!state.folder) {
+    const scope = state.folder || ctx.env.library;
+    if (!scope) {
       status.textContent = '';
       const e = document.createElement('div'); e.className = 'side-empty';
       e.textContent = t('打开一个文件夹，就能搜索里面所有的文档。', 'Open a folder to search all of its documents.');
@@ -34,7 +35,7 @@ export function initSearch(ctx) {
     }
     if (!q) { status.textContent = ''; return; }
     status.textContent = t('搜索中…', 'Searching…');
-    const r = await api.search({ folder: state.folder, query: q, opts });
+    const r = await api.search({ folder: scope, query: q, opts });
     if (my !== seq || !r || r.canceled) return;
     if (r.code === 'timeout') { status.textContent = t('搜索超时：表达式太复杂或文件太多，已停止', 'Search timed out (the expression is too complex or there are too many files), so it was stopped'); return; }
     if (r.error) { status.textContent = (r.code === 'invalid' ? t('表达式有误：', 'Invalid expression: ') : t('搜索失败：', 'Search failed: ')) + r.error; return; }

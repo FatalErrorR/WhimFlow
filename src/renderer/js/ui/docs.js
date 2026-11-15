@@ -53,7 +53,7 @@ export function initDocs(ctx) {
     d = slot(preview);
     Object.assign(d, { filePath, state: editor.newState(content), scrollTop: 0, dirty: false, preview: !!preview, eol: eolOf(content), rev: 0, savedRev: 0, diskVersion: version || null, conflict: null, label: null, suggest: null });
     activate(d, { jump, fresh: true });
-    if (!state.folder && filePath) ctx.sidebar.setFolder(dirname(filePath));
+    if (!state.folder && filePath && !ctx.sidebar.inLibrary(filePath)) ctx.sidebar.setFolder(dirname(filePath));
     return d;
   }
   const eolOf = (text) => (/\r\n/.test(text) ? '\r\n' : '\n');
@@ -88,7 +88,7 @@ export function initDocs(ctx) {
     // a recovered copy is a new file; otherwise the version the draft's text was based on
     Object.assign(d, { state: editor.newState(content), scrollTop: 0, dirty: true, preview: false, eol: eolOf(content), rev: 1, savedRev: 0, diskVersion: d.filePath ? version || null : null, conflict: null });
     activate(d, { fresh: true });
-    if (!state.folder && filePath) ctx.sidebar.setFolder(dirname(filePath));
+    if (!state.folder && filePath && !ctx.sidebar.inLibrary(filePath)) ctx.sidebar.setFolder(dirname(filePath));
     toast(taken ? t('已恢复上次没来得及保存的内容（另一个窗口的版本另存为恢复副本）', 'Recovered unsaved text (another window’s version opened as a recovered copy)')
       : t('已恢复上次没来得及保存的内容', 'Recovered the text you hadn’t saved last time'));
     const kept = await api.draft(d.id, ctx.draftOf(d));

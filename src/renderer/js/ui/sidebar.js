@@ -1,6 +1,6 @@
 // Left island: file tree and outline.
 import { $, t, basename, dirname, prompt, toast } from '../util.js';
-import { remapPath } from '../paths.js';
+import { remapPath, isUnder } from '../paths.js';
 import { syncText } from './settings.js';
 
 export function initSidebar(ctx) {
@@ -114,60 +114,85 @@ export function initSidebar(ctx) {
   }
 
   // ---------- file tree ----------
-  // the library (the app's own synced folder) is named as such, with how the sync is doing
+  // Two parts. On top, always, the library: the app's own synced folder (desktop only); what is
+  // put there stays there, whatever else is opened. Below it, the folder that was opened (by hand,
+  // or the folder of a file opened from elsewhere), which can be closed. iPad shows its one folder.
+  const lib = () => ctx.env.library || null;
+  const inLib = (p) => !!lib() && !!p && isUnder(p, lib());
+  /** The roots shown: [{ dir, lib }] */
+  const roots = () => [...(lib() ? [{ dir: lib(), lib: true }] : []), ...(state.folder && !inLib(state.folder) ? [{ dir: state.folder, lib: false }] : [])];
+  let trees = new Map(); // root dir -> nodes
   let sync = null;
   function folderLabel() {
-    const meta = cards.files.querySelector('.card-meta'), dir = state.folder;
-    const lib = !!dir && dir === ctx.env.library;
-    const note = lib ? syncText(sync, true) : '';
-    meta.textContent = !dir ? '' : (lib ? t('我的文件库', 'My Library') : basename(dir)) + (note ? ' · ' + note : '');
-    meta.dataset.tip = lib ? syncText(sync) : dir || '';
+    const meta = cards.files.querySelector('.card-meta');
+    // the card's head names the one folder when there is only one; the parts have their own heads
+    meta.textContent = !lib() && state.folder ? basename(state.folder) : '';
+    meta.dataset.tip = !lib() ? state.folder || '' : '';
+    const head = $('#tree') && $('#tree').querySelector('.tree-root.lib .tree-root-meta');
+    if (head) { head.textContent = syncText(sync, true); head.dataset.tip = syncText(sync); }
   }
   function setSync(s) { sync = s; folderLabel(); }
+  /** The folder shown under the library (null: none). A folder inside the library is the library. */
   async function setFolder(dir) {
-    state.folder = dir;
+    state.folder = dir && !inLib(dir) ? dir : null;
+    if (api.setFolder) api.setFolder(state.folder);
+    for (const d of [...openDirs]) if (!inLib(d)) openDirs.delete(d);
     folderLabel();
-    openDirs.clear();
     await refreshTree();
   }
   async function refreshTree() {
-    treeData = state.folder ? await api.readTree(state.folder) : [];
+    const rs = roots();
+    const next = new Map();
+    for (const r of rs) next.set(r.dir, await api.readTree(r.dir));
+    trees = next;
+    treeData = rs.flatMap((r) => trees.get(r.dir) || []);
     renderTree();
   }
+  /** Show the library and nod at it (File > My Library). */
+  function showLibrary() {
+    setSidebar(true, 'files');
+    const head = $('#tree').querySelector('.tree-root.lib');
+    if (head) { head.scrollIntoView({ block: 'nearest' }); head.classList.remove('nudge'); void head.offsetWidth; head.classList.add('nudge'); }
+  }
+
   // ---------- files dragged in from Finder: copied into the folder under the pointer ----------
   const treeBox = $('#tree');
-  let dropRow = null;
+  let dropAt = null; // the element showing where a drop goes
   const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
-  /** The folder a drop at this point goes into: a folder row, a document's folder, or the top. */
+  /** The folder a drop at this point goes into: a folder row, a document's folder, or the top of that part. */
   function dropTarget(e) {
+    const part = e.target.closest && e.target.closest('.tree-section');
     const row = e.target.closest && e.target.closest('.tree-item');
-    if (!row) return { row: null, dir: state.folder };
-    return { row, dir: row.classList.contains('dir') ? row.dataset.path : dirname(row.dataset.path) };
+    if (row) return { el: row.classList.contains('dir') ? row : part, dir: row.classList.contains('dir') ? row.dataset.path : dirname(row.dataset.path) };
+    if (part) return { el: part, dir: part.dataset.root };
+    const first = treeBox.querySelector('.tree-section');
+    return first ? { el: first, dir: first.dataset.root } : null;
   }
-  function showDrop(row) {
-    if (dropRow && dropRow !== row) dropRow.classList.remove('drop-into');
-    dropRow = row;
-    if (row && row.classList.contains('dir')) row.classList.add('drop-into');
-    treeBox.classList.toggle('drop-root', !row || !row.classList.contains('dir'));
+  function showDrop(el) {
+    if (dropAt && dropAt !== el) dropAt.classList.remove('drop-into');
+    dropAt = el;
+    if (el) el.classList.add('drop-into');
   }
-  const clearDrop = () => { showDrop(null); treeBox.classList.remove('drop-root'); };
   treeBox.addEventListener('dragover', (e) => {
-    if (!hasFiles(e) || !state.folder || !api.importFiles) return;
+    if (!hasFiles(e) || !api.importFiles) return;
+    const tg = dropTarget(e);
+    if (!tg) return;
     e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
-    showDrop(dropTarget(e).row);
+    showDrop(tg.el);
   });
-  treeBox.addEventListener('dragleave', (e) => { if (!treeBox.contains(e.relatedTarget)) clearDrop(); });
+  treeBox.addEventListener('dragleave', (e) => { if (!treeBox.contains(e.relatedTarget)) showDrop(null); });
   treeBox.addEventListener('drop', async (e) => {
-    if (!hasFiles(e) || !state.folder || !api.importFiles) return;
+    if (!hasFiles(e) || !api.importFiles) return;
+    const tg = dropTarget(e);
+    if (!tg) return;
     e.preventDefault(); e.stopPropagation();
-    const { dir } = dropTarget(e);
-    clearDrop();
+    showDrop(null);
     const paths = [...e.dataTransfer.files].map((f) => api.pathForFile(f)).filter(Boolean);
-    const r = await api.importFiles({ paths, dir });
+    const r = await api.importFiles({ paths, dir: tg.dir });
     if (!r) { toast(t('无法复制到这里', 'Could not copy here')); return; }
-    if (dir !== state.folder) openDirs.add(dir);
+    if (!roots().some((x) => x.dir === tg.dir)) openDirs.add(tg.dir);
     await refreshTree();
-    const where = dir === state.folder ? (dir === ctx.env.library ? t('我的文件库', 'My Library') : basename(dir)) : basename(dir);
+    const where = tg.dir === lib() ? t('我的文件库', 'My Library') : basename(tg.dir);
     const n = r.added.length;
     if (n) toast(t(`已复制 ${n} 项到「${where}」`, `Copied ${n} item(s) to “${where}”`) + (r.images ? t(`，连同 ${r.images} 张图片`, `, with ${r.images} image(s)`) : '')
       + (r.skipped.length ? t(`；未复制：${r.skipped.join('、')}`, `; left out: ${r.skipped.join(', ')}`) : ''));
@@ -177,18 +202,7 @@ export function initSidebar(ctx) {
   function renderTree() {
     const box = $('#tree');
     box.textContent = '';
-    if (!state.folder) {
-      const e = document.createElement('div');
-      e.className = 'side-empty';
-      e.textContent = t('还没有打开文件夹。', 'No folder yet.');
-      const b = document.createElement('button');
-      b.className = 'link-btn';
-      b.textContent = t('打开文件夹', 'Open a folder');
-      b.onclick = () => api.openFolderDialog();
-      e.append(document.createElement('br'), b);
-      box.append(e);
-      return;
-    }
+    const rs = roots();
     const build = (nodes, parent, depth) => {
       for (const n of nodes) {
         const row = document.createElement('div');
@@ -214,19 +228,49 @@ export function initSidebar(ctx) {
         }
       }
     };
-    build(treeData, box, 0);
-    if (!box.children.length) {
-      const e = document.createElement('div');
-      e.className = 'side-empty';
-      e.textContent = t('此文件夹中没有 Markdown 文件', 'No Markdown files in this folder');
+    const empty = (text) => { const e = document.createElement('div'); e.className = 'side-empty'; e.textContent = text; return e; };
+    const openLink = (text) => { const b = document.createElement('button'); b.className = 'link-btn tree-open'; b.textContent = text; b.onclick = () => api.openFolderDialog(); return b; };
+    if (!rs.length) { // iPad / no library: as before
+      const e = empty(t('还没有打开文件夹。', 'No folder yet.'));
+      e.append(document.createElement('br'), openLink(t('打开文件夹', 'Open a folder')));
       box.append(e);
+      return;
     }
+    const heads = !!lib(); // with the library there are parts, each with a head
+    for (const r of rs) {
+      const part = document.createElement('div');
+      part.className = 'tree-section' + (r.lib ? ' lib' : '');
+      part.dataset.root = r.dir;
+      part.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); api.treeMenu({ path: r.dir, dir: true, root: true }); };
+      if (heads) {
+        const head = document.createElement('div');
+        head.className = 'tree-root' + (r.lib ? ' lib' : '');
+        const name = document.createElement('span'); name.className = 'tree-root-name';
+        name.textContent = r.lib ? t('我的文件库', 'My Library') : basename(r.dir);
+        head.title = r.lib ? t('跟服务器同步；放进来的文件会一直留在这里', 'Synced with the server; what you put here stays here') : r.dir;
+        const meta = document.createElement('span'); meta.className = 'tree-root-meta';
+        head.append(name, meta);
+        if (!r.lib) {
+          const x = document.createElement('button'); x.className = 'tree-root-close'; x.textContent = '×';
+          x.title = t('关闭这个文件夹（文件不受影响）', 'Close this folder (the files are not touched)');
+          x.onclick = (e) => { e.stopPropagation(); setFolder(null); };
+          head.append(x);
+        }
+        part.append(head);
+      }
+      const nodes = trees.get(r.dir) || [];
+      build(nodes, part, 0);
+      if (!nodes.length) part.append(empty(r.lib ? t('把文档或图片从访达拖到这里，就会存进文件库并同步。', 'Drag documents or images here from Finder: they are kept in the library and synced.') : t('此文件夹中没有 Markdown 文件', 'No Markdown files in this folder')));
+      box.append(part);
+    }
+    if (heads && !state.folder) box.append(openLink(t('打开其他文件夹…', 'Open another folder…')));
+    folderLabel();
   }
   const markActiveFile = () => document.querySelectorAll('.tree-item').forEach((r) => {
     r.classList.toggle('active', r.dataset.path === state.filePath);
     r.classList.toggle('opened', !!ctx.docs && ctx.docs.isOpen(r.dataset.path));
   });
-  $('#tree').oncontextmenu = (e) => { e.preventDefault(); if (state.folder) api.treeMenu({ path: state.folder, dir: true }); };
+  $('#tree').oncontextmenu = (e) => { e.preventDefault(); const r = roots()[0]; if (r) api.treeMenu({ path: r.dir, dir: true, root: true }); };
 
   api.onTreeAction(async (action, item) => {
     const dir = item.dir ? item.path : dirname(item.path);
@@ -257,5 +301,5 @@ export function initSidebar(ctx) {
     refreshTree();
   }
 
-  return { setSidebar, toggleCard, isOpen, refreshOutline, highlight, setFolder, setSync, refreshTree, markActiveFile, renamed, files: () => treeData };
+  return { setSidebar, toggleCard, isOpen, refreshOutline, highlight, setFolder, setSync, refreshTree, markActiveFile, renamed, showLibrary, inLibrary: inLib, roots, files: () => treeData };
 }

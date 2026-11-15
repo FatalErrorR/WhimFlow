@@ -293,7 +293,7 @@ const api = window.api;
     if (isActive && ctx.right.isOpen() && ctx.right.tab() === 'history') ctx.history.render();
     if (p !== had) {
       if (isActive) { editor.setBase(baseUrl()); updateWelcome(); }
-      if (!state.folder) ctx.sidebar.setFolder(dirname(p)); else ctx.sidebar.refreshTree();
+      if (!state.folder && !ctx.sidebar.inLibrary(p)) ctx.sidebar.setFolder(dirname(p)); else ctx.sidebar.refreshTree();
     }
     return true;
   }
@@ -474,6 +474,7 @@ const api = window.api;
     sidebar: () => ctx.sidebar.setSidebar(!ctx.sidebar.isOpen()),
     outline: () => ctx.sidebar.toggleCard('outline'),
     files: () => ctx.sidebar.toggleCard('files'),
+    library: () => ctx.sidebar.showLibrary(),
     'open-folder': () => api.openFolderDialog(),
     mindmap: () => ctx.right.toggle('mindmap'),
     preview: () => ctx.right.toggle('preview'),
@@ -570,7 +571,7 @@ const api = window.api;
   if (api.onSyncStatus) {
     api.onSyncStatus((s) => {
       ctx.sidebar.setSync(s);
-      if (s.changed && state.folder && state.folder === env.library) ctx.sidebar.refreshTree();
+      if (s.changed) ctx.sidebar.refreshTree(); // the library is always in the tree
       const n = (s.conflicts || []).length;
       if (n) toast(t(`${n} 篇文档在两台设备上都改过，两份都保留了（名字里带「冲突」的是另一份）`, `${n} document(s) were changed on two devices; both versions are kept (the copy has "冲突" in its name)`));
     });
@@ -645,7 +646,8 @@ const api = window.api;
   ctx.islands.applyOrder(false);
   ctx.islands.setIsland('main');
   ctx.docs.newDoc();
-  if (state.folder) { await ctx.sidebar.setFolder(state.folder); ctx.sidebar.setSidebar(true, 'files'); }
+  await ctx.sidebar.setFolder(state.folder); // also draws the library
+  if (state.folder || env.showLibrary) ctx.sidebar.setSidebar(true, 'files');
   else ctx.sidebar.setSidebar(!!env.settings.sidebar, 'outline');
   editor.focus();
   document.body.classList.add('ready');
