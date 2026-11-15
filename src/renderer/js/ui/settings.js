@@ -90,6 +90,7 @@ export function initSettings(ctx) {
           await api.syncDisconnect(); renderSync();
         }));
       syncBox.append(field(t('服务器', 'Server'), cfg.url.replace(/^https:\/\//, ''), row));
+      syncBox.lastChild.classList.add('sync-row');
       return;
     }
     const url = input('text', 'whimflow.example.com'), token = input('password', t('令牌', 'Token'));
@@ -111,6 +112,7 @@ export function initSettings(ctx) {
       field(t('服务器地址', 'Server address'), t('你的 WhimFlow 同步服务器', 'Your WhimFlow sync server'), wrap(url)),
       field(t('令牌', 'Token'), t('服务器上生成的访问令牌，只需填一次', 'The access token from the server; entered once'), wrap(token, go, msg)),
     );
+    syncBox.querySelectorAll('.set-row').forEach((r) => r.classList.add('sync-row'));
   }
   if (api.onSyncStatus) api.onSyncStatus((st) => { const el = syncBox.querySelector('.sync-state'); if (el) el.textContent = syncText(st); });
 
