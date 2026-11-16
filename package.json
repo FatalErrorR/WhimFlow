@@ -15,7 +15,8 @@
     "test:unit": "node test/unit.js && node test/import.js && node test/closing.js",
     "build:mobile": "node scripts/build.js mobile && cd mobile && npx cap sync ios",
     "test:mobile": "node scripts/build.js mobile && node test/mobile.js",
-    "test:sync": "node test/sync-server.js && node test/sync-engine.js && node test/sync-desktop.js"
+    "test:sync": "node test/sync-server.js && node test/sync-engine.js && node test/sync-desktop.js",
+    "screenshots": "npm run build && node scripts/build.js mobile && node scripts/screenshots.js"
   },
   "dependencies": {
     "html-to-docx": "^1.8.0",

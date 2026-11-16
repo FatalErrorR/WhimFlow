@@ -21,6 +21,9 @@ const IMG_EXT = images.IMG;
 // answer a dialog, or make the Trash fail. Never present in normal use.
 const testHooks = process.env.WHIMFLOW_TEST ? (globalThis.__whimflowTest = { delay: {}, answer: {}, trashItem: null, searchTimeout: null }) : null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Screenshots and checks that must not appear on screen (WHIMFLOW_TEST=1 WHIMFLOW_HIDDEN=1): windows
+// are drawn but never shown, and there is no Dock icon.
+const hidden = !!(testHooks && process.env.WHIMFLOW_HIDDEN);
 /** ipcMain.handle, plus the optional test delay for that channel. */
 function handle(channel, fn) {
   ipcMain.handle(channel, async (...args) => {
@@ -115,7 +118,7 @@ function createWindow(opts = {}) {
   wins.set(win.id, st);
   const id = win.id;
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  if (!hidden) win.once('ready-to-show', () => win.show());
 
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { e.preventDefault(); openExternal(url); });
@@ -793,6 +796,7 @@ else {
     else { const w = focused(); if (w) { if (w.isMinimized()) w.restore(); w.focus(); } else createWindow(); }
   });
 
+  if (hidden && isMac && app.dock) app.dock.hide();
   app.whenReady().then(() => {
     if (testHooks) testHooks.createWindow = (opts) => { createWindow(opts); };
     loadSettings();
