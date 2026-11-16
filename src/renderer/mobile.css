@@ -35,6 +35,7 @@ body.m-phone #preview-doc { padding: 22px 22px calc(30vh + var(--sab)); max-widt
 /* the "where the caret is" bar and bands only help when the editor is beside the final view (desktop, iPad);
    on a phone the read view is shown alone, so they just stand in the way of the text */
 body.m-phone #preview-doc .here, body.m-phone #preview-doc tr.here > :first-child { box-shadow: none !important; }
+body.m-phone #preview-doc [data-line]:not(pre[data-title]):is(:hover, .here)::before { content: none !important; }
 body.m-phone #preview-doc li.here::marker { color: inherit; }
 body.m-phone .pv-band { display: none; }
 body.m-phone #editor .cm-scroller { font-size: var(--doc-size, 17px); }

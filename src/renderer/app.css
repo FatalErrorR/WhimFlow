@@ -226,12 +226,19 @@ body[data-rtab="mindmap"] #mindmap, body[data-rtab="preview"] #preview, body[dat
 [data-theme="slate"] .pv-sec, [data-theme="midnight"] .pv-sec { --t: 8%; }
 [data-theme="slate"] .pv-cur, [data-theme="midnight"] .pv-cur { --t: 16%; }
 #preview-doc { padding: 14px 24px 30vh; max-width: 780px; margin: 0 auto; font-size: calc(var(--doc-size, 16px) * .9 * var(--zoom, 1)); }
-/* click a block to go to its source; the block holding the editor's caret wears a thin bar */
-#preview-doc [data-line] { cursor: pointer; transition: box-shadow .2s ease; }
-#preview-doc [data-line]:not(ul, ol, li, tr):hover { box-shadow: -12px 0 0 -10px color-mix(in srgb, var(--muted) 45%, transparent); }
-#preview-doc .here:not(ul, ol, tr) { box-shadow: -12px 0 0 -10px var(--accent) !important; }
+/* click a block to go to its source; the block holding the editor's caret wears a thin bar, set
+   apart from the text (10 px), at the edge of the band behind it. A bar of its own (::before):
+   a box-shadow can only touch the text. A titled code block uses ::before for its title, and
+   has its own box: its bar is that box's edge. */
+#preview-doc [data-line] { cursor: pointer; }
+#preview-doc [data-line]:not(ul, ol, li, tr, pre[data-title]):is(:hover, .here) { position: relative; }
+#preview-doc [data-line]:not(ul, ol, li, tr, pre[data-title]):is(:hover, .here)::before {
+  content: ""; position: absolute; left: -12px; top: .15em; bottom: .15em; width: 2px; border-radius: 1px; pointer-events: none;
+  background: color-mix(in srgb, var(--muted) 45%, transparent); }
+#preview-doc [data-line].here:not(ul, ol, li, tr, pre[data-title]):is(:hover, .here)::before { background: var(--accent); }
+#preview-doc pre[data-title]:hover { box-shadow: -12px 0 0 -10px color-mix(in srgb, var(--muted) 45%, transparent); }
+#preview-doc pre[data-title].here { box-shadow: -12px 0 0 -10px var(--accent) !important; }
 #preview-doc tr.here > :first-child { box-shadow: inset 2px 0 0 var(--accent); }
-#preview-doc li.here { box-shadow: none !important; }
 #preview-doc li.here::marker { color: var(--accent); }
 
 /* mind map */

@@ -80,7 +80,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   assert(await body('m-read') && await page.locator('#preview').isVisible() && !(await page.locator('#main').isVisible()), 'read shows the final view alone');
   await page.waitForSelector('#preview-doc .here', { state: 'attached', timeout: 3000 });
   assert.deepStrictEqual(await W(() => ({
-    bars: [...document.querySelectorAll('#preview-doc *')].filter((e) => getComputedStyle(e).boxShadow !== 'none').length,
+    bars: [...document.querySelectorAll('#preview-doc *')].filter((e) => getComputedStyle(e).boxShadow !== 'none' || !['none', 'normal'].includes(getComputedStyle(e, '::before').content)).length,
     bands: [...document.querySelectorAll('.pv-band')].filter((e) => getComputedStyle(e).display !== 'none').length,
   })), { bars: 0, bands: 0 }, 'no caret bar or bands beside the text when reading on a phone');
   await page.screenshot({ path: path.join(shots, 'm3-read.png') });
@@ -432,6 +432,15 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   await sleep(800);
   assert(await page.locator('#sidebar').isVisible() && await page.locator('#main').isVisible() && await page.locator('#right').isVisible(), 'sidebar, editor and final view side by side');
   await page.screenshot({ path: path.join(shots, 'm5-ipad.png') });
+  // the caret's bar in the final view (iPad, as on the desktop) stands apart from the text
+  await page.waitForSelector('#preview-doc .here', { state: 'attached', timeout: 5000 });
+  const bar = await W(() => {
+    const el = document.querySelector('#preview-doc .here'), b = getComputedStyle(el, '::before');
+    const r = document.createRange(); r.selectNodeContents(el);
+    const textLeft = Math.min(...[...r.getClientRects()].map((x) => x.left));
+    return { shown: b.content !== 'none', gap: Math.round(textLeft - (el.getBoundingClientRect().left + parseFloat(b.left) + parseFloat(b.width))) };
+  });
+  assert(bar.shown && bar.gap >= 8, 'the caret bar is set apart from the text: ' + JSON.stringify(bar));
   step('iPad: sidebar, editor and final view side by side');
 
   assert.deepStrictEqual(errors, [], 'no page errors');
