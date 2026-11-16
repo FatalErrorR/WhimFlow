@@ -167,7 +167,9 @@ function createSync({ local, remote, state, device, now = () => new Date(), hash
     })();
     return running;
   }
-  return { sync, isRunning: () => !!running };
+  /** Resolves once no pass is running (a pass under way finishes, its base saved). */
+  const idle = () => (running ? running.then(() => {}, () => {}) : Promise.resolve());
+  return { sync, isRunning: () => !!running, idle };
 }
 
 /** The sync server's API over fetch (Node's, the page's, or one that goes through native code). */
@@ -286,10 +288,13 @@ function createSyncController({ local, state, tokens, getUrl, setUrl, notify, de
     },
     /** Stop syncing; the files stay here and on the server. */
     async disconnect() {
+      const e = engine;
+      clearTimeout(soon);
       await tokens.clear();
       await setUrl('');
+      await build(); // no engine from here on: nothing new starts
+      if (e) await e.idle(); // a pass under way saves its base when it ends: let it, then forget it
       await state.clear();
-      await build();
       return { ok: true };
     },
     stop() { clearInterval(timer); clearTimeout(soon); },
