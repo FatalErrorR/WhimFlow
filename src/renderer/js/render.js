@@ -99,6 +99,42 @@ md.validateLink = (url) => {
   if (u.startsWith('data:')) return /^data:image\/(gif|png|jpeg|webp);/.test(u);
   return true;
 };
+// Indented lines are text, as in the editor: no indented code blocks (code is fenced with ```).
+// Their indentation shows, as typed: at the start of a paragraph, and at the start of each line
+// that a single line break begins (when those breaks show).
+md.disable('code');
+const indentOf = (ws) => ws.replace(/\t/g, '    ').replace(/ /g, '\u00a0'); // spaces that do not collapse
+md.inline.ruler.at('newline', (state, silent) => {
+  let pos = state.pos;
+  if (state.src.charCodeAt(pos) !== 0x0A) return false;
+  if (!silent) {
+    const pmax = state.pending.length - 1;
+    if (pmax >= 0 && state.pending.charCodeAt(pmax) === 0x20) {
+      if (pmax >= 1 && state.pending.charCodeAt(pmax - 1) === 0x20) { // two spaces: a hard break
+        let ws = pmax - 1;
+        while (ws >= 1 && state.pending.charCodeAt(ws - 1) === 0x20) ws--;
+        state.pending = state.pending.slice(0, ws);
+        state.push('hardbreak', 'br', 0);
+      } else { state.pending = state.pending.slice(0, -1); state.push('softbreak', 'br', 0); }
+    } else state.push('softbreak', 'br', 0);
+  }
+  pos++;
+  const from = pos;
+  while (pos < state.posMax && (state.src.charCodeAt(pos) === 0x20 || state.src.charCodeAt(pos) === 0x09)) pos++;
+  const last = state.tokens[state.tokens.length - 1];
+  if (!silent && pos > from && last && (last.type === 'hardbreak' || state.md.options.breaks)) state.pending += indentOf(state.src.slice(from, pos));
+  state.pos = pos;
+  return true;
+});
+md.core.ruler.after('block', 'paragraph_indent', (state) => {
+  const lines = state.src.split('\n');
+  state.tokens.forEach((tok, i) => {
+    if (tok.type !== 'paragraph_open' || tok.level !== 0 || !tok.map) return;
+    const ws = /^[ \t]*/.exec(lines[tok.map[0]] || '')[0];
+    const inline = state.tokens[i + 1];
+    if (ws && inline && inline.type === 'inline') inline.content = indentOf(ws) + inline.content;
+  });
+});
 md.inline.ruler.after('escape', 'math_inline', mathInline);
 md.block.ruler.before('fence', 'math_block', mathBlock, { alt: ['paragraph', 'reference', 'blockquote', 'list'] });
 md.renderer.rules.math_inline = (t, i) => renderMath(t[i].content, false);

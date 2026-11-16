@@ -203,7 +203,8 @@ export function initMobile({ run, state, editor, ctx }, hooks) {
   async function docRow(path) {
     let text = '', mtime = 0;
     try { text = await M.read(path); mtime = +(await M.stat(path)).mtime || 0; } catch (_) { return null; }
-    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    // the front matter (--- title: … ---) is not the text: the title and the line under it come after it
+    const lines = text.replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/, '').split('\n').map((l) => l.trim()).filter(Boolean);
     const title = (/^#{1,6}\s+(.+)$/.exec(lines[0] || '') || [])[1] || path.replace(/^.*\//, '').replace(/\.(md|markdown)$/i, '');
     const snippet = lines.slice(/^#/.test(lines[0] || '') ? 1 : 0).find((l) => !/^(#|```|---|\|)/.test(l)) || '';
     const open = ctx.docs.byPath(path);

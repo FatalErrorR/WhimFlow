@@ -107,6 +107,37 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   }
   step('final view: a file:// image shows as a picture, not as its address');
 
+  // indented lines (spaces or a tab) are text, never a code block; their indentation shows; a blank
+  // line splits units; the "strict line breaks" switch is off by default and joins lines when on
+  {
+    const before = await W(() => window.__whimflow.editor.getValue());
+    const TEXT = 'SGD 隨機梯度下降\n        隨機挑 1 條數據\n\n        算得很快，但不穩定\n\n\t用 Tab 縮進的一行';
+    await W((t) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } }); }, TEXT);
+    await sleep(300);
+    assert.strictEqual(await W(() => document.querySelectorAll('.cm-cb-indented').length), 0, 'the editor shows no code block');
+    await page.locator('#m-bar .m-seg button[data-mode="read"]').tap();
+    await page.waitForFunction(() => document.querySelectorAll('#preview-doc p').length === 3, null, { timeout: 5000 });
+    const view = () => W(() => ({ pre: document.querySelectorAll('#preview-doc pre').length, ps: [...document.querySelectorAll('#preview-doc p')].map((p) => p.innerHTML.replace(/&nbsp;/g, '·').replace(/\s*<br>\s*/g, '⏎')) }));
+    let v = await view();
+    assert.deepStrictEqual(v, { pre: 0, ps: ['SGD 隨機梯度下降⏎········隨機挑 1 條數據', '········算得很快，但不穩定', '····用 Tab 縮進的一行'] }, 'three text units, indentation kept: ' + JSON.stringify(v));
+    // Settings: the switch reads "正文区不换行", off by default; on, single lines join (and no indentation in the middle of a line)
+    await page.locator('#m-bar .m-seg button[data-mode="write"]').tap();
+    await W(() => window.__whimflow.ctx.settingsUI.open());
+    const sw = page.locator('#settings .set-row', { hasText: '正文区不换行' }).locator('.switch');
+    assert(!(await sw.evaluate((b) => b.classList.contains('on'))), 'off by default');
+    await sw.tap();
+    assert.strictEqual(await W(async () => (await window.api.syncConfig()) && window.__whimflow.state.settings.lineBreaks), false, 'on: the setting is strict');
+    await W(() => window.__whimflow.ctx.settingsUI.close());
+    await page.locator('#m-bar .m-seg button[data-mode="read"]').tap();
+    await page.waitForFunction(() => !document.querySelector('#preview-doc p br'), null, { timeout: 5000 });
+    v = await view();
+    assert.deepStrictEqual(v.ps, ['SGD 隨機梯度下降\n隨機挑 1 條數據', '········算得很快，但不穩定', '····用 Tab 縮進的一行'], 'strict: lines of a unit join, a unit keeps its own indentation: ' + JSON.stringify(v));
+    await W(() => window.api.setSetting('lineBreaks', true));
+    await page.locator('#m-bar .m-seg button[data-mode="write"]').tap();
+    await W((t) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } }); }, before);
+  }
+  step('indented lines are text with their indentation; a blank line splits units; "正文区不换行" is off by default');
+
   // the sheet: outline
   await W(() => { const v = window.__whimflow.editor.view; const ins = '\n\n## 周末\n\n水果'; v.dispatch({ changes: { from: v.state.doc.length, insert: ins }, selection: { anchor: v.state.doc.length + ins.length } }); });
   await page.locator('#m-bar .m-more').tap();
@@ -250,12 +281,11 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
     assert(!(await r.evaluate((w) => w.classList.contains('open'))), 'dragged back: closed again');
   }
   await moveVia(rowOf('.m-doc', '购物清单'), '工作');
-  await page.waitForFunction(() => window.api.mobile.exists('/WhimFlow/工作/周末采购.md'), null, { timeout: 5000 });
-  assert(!(await exists('/WhimFlow/周末采购.md')), 'moved into the folder');
+  // in the browser a move is a copy, then a delete (on iOS it is one step): wait for both
+  await until(async () => (await exists('/WhimFlow/工作/周末采购.md')) && !(await exists('/WhimFlow/周末采购.md')), 'moved into the folder', 5000);
   await page.locator('#m-lib .m-folder', { hasText: '工作' }).tap();
   await moveVia(rowOf('.m-doc', '购物清单'), 'WhimFlow');
-  await page.waitForFunction(() => window.api.mobile.exists('/WhimFlow/周末采购.md'), null, { timeout: 5000 });
-  assert(!(await exists('/WhimFlow/工作/周末采购.md')), 'and back to the top of the library');
+  await until(async () => (await exists('/WhimFlow/周末采购.md')) && !(await exists('/WhimFlow/工作/周末采购.md')), 'and back to the top of the library', 5000);
   await page.locator('#m-lib .m-crumb').tap();
   const work = rowOf('.m-folder', '工作');
   await swipe(work);
@@ -367,7 +397,12 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
     const listed = await W(() => window.api.mobile.syncLocal.list());
     assert.strictEqual(listed.files['assets/图.png'] && listed.files['assets/图.png'].v, sha(png), 'the image arrived unchanged');
     await page.screenshot({ path: path.join(shots, 'm7-sync-library.png') });
-    step('a document and an image from another device come down; the library shows them');
+      // a document with front matter: listed by its heading and first line, not by the front matter
+    assert.strictEqual((await otherDevice('有属性的.md', '---\ntitle: 属性\ntags: a, b\n---\n\n# 真正的标题\n\n第一句正文。\n', { 'If-None-Match': '*' })).status, 200);
+    await W(() => window.api.syncNow());
+    await until(async () => (await page.locator('#m-lib .m-doc', { hasText: '真正的标题' }).count()) === 1, 'listed by its heading');
+    assert.strictEqual(await page.locator('#m-lib .m-doc', { hasText: '真正的标题' }).locator('p').innerText(), '第一句正文。', 'the line under it is the text, not the front matter');
+  step('a document and an image from another device come down; the library shows them');
 
     // an open document follows a change made elsewhere; an edit here goes up
     await page.locator('#m-lib .m-doc', { hasText: '手机笔记' }).tap();

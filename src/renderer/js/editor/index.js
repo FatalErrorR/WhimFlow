@@ -63,7 +63,7 @@ export function createEditor(parent, opts) {
     autocompletion({ override: [fenceCompletion], icons: false }),
     Prec.high(keymap.of([...tableKeymap, ...codeKeymap, ...tableNavKeymap])),
     keymap.of([...closeBracketsKeymap, ...historyKeymap, ...defaultKeymap, indentWithTab]),
-    markdown({ base: markdownLanguage, codeLanguages: (info) => LanguageDescription.matchLanguageName(languages, info.replace(/\{.*$/, ''), true), extensions: [HighlightExt, MathExt, FootnoteExt, FrontMatterExt], completeHTMLTags: false }),
+    markdown({ base: markdownLanguage, codeLanguages: (info) => LanguageDescription.matchLanguageName(languages, info.replace(/\{.*$/, ''), true), extensions: [HighlightExt, MathExt, FootnoteExt, FrontMatterExt, { remove: ['IndentedCode'] }], completeHTMLTags: false }), // indented lines are text; code is fenced (```)
     syntaxHighlighting(highlightStyle),
     modeExt(),
     focusPlugin,

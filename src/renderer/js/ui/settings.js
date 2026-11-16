@@ -48,11 +48,13 @@ export function initSettings(ctx) {
     box.append(r, out);
     return box;
   };
-  const toggle = (k) => {
+  /** A switch for a true/false setting; `invert`: the switch is on when the setting is false. */
+  const toggle = (k, invert = false) => {
     const b = document.createElement('button');
-    b.className = 'switch' + (current[k] ? ' on' : '');
+    const on = () => (invert ? !current[k] : !!current[k]);
+    b.className = 'switch' + (on() ? ' on' : '');
     b.setAttribute('role', 'switch');
-    b.onclick = () => { set(k, !current[k]); b.classList.toggle('on', current[k]); };
+    b.onclick = () => { set(k, !current[k]); b.classList.toggle('on', on()); };
     return b;
   };
   const text = (k, presets) => {
@@ -131,7 +133,7 @@ export function initSettings(ctx) {
       section(t('编辑', 'Editing')),
       field(t('自动配对括号和引号', 'Close brackets and quotes'), null, toggle('closeBrackets')),
       field(t('缩进宽度', 'Indent width'), null, segmented('indent', [[2, '2'], [4, '4']])),
-      field(t('单个换行', 'Single line breaks'), t('开：按一次回车，正式稿和导出里也换行。关：严格按 Markdown 标准，连成一行，空一行才分段', 'On: one Enter is a new line in the final view and exports too. Off: strict Markdown, joined into one line until a blank line'), toggle('lineBreaks')),
+      field(t('正文区不换行（严格 Markdown）', 'Strict line breaks (Markdown)'), t('关（默认）：编辑区按一次回车，正式稿和导出里也换行。开：按 Markdown 标准，单个回车连成一行，空一行才分段', 'Off (default): one Return is a new line in the final view and exports too. On: standard Markdown, single lines join until a blank line'), toggle('lineBreaks', true)),
       field(t('显示不可见字符', 'Show invisible characters'), t('用很淡的符号画出空格、Tab 和换行', 'Faint marks for spaces, tabs and line breaks'), toggle('showInvisibles')),
       field(t('拼写检查', 'Spell check'), null, toggle('spellcheck')),
       field(t('自动保存', 'Auto save'), t('停止输入后自动写入文件', 'Write to the file shortly after you stop typing'), toggle('autoSave')),
