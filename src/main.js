@@ -13,6 +13,8 @@ const fileops = require('./main/fileops');
 const { createSearch } = require('./main/search');
 const { createDesktopSync } = require('./main/sync-desktop');
 const { importInto } = require('./main/importer');
+const { createQuitState, guardClose } = require('./main/closing');
+const quitState = createQuitState();
 const IMG_EXT = images.IMG;
 
 // End-to-end tests (WHIMFLOW_TEST=1 only) reach in here to slow an IPC call down,
@@ -118,18 +120,8 @@ function createWindow(opts = {}) {
   win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e, url) => { e.preventDefault(); openExternal(url); });
 
-  win.on('close', (e) => {
-    if (!st.dirty || st.forceClose) return;
-    e.preventDefault();
-    if (st.closing) return; // already asking
-    st.closing = true;
-    confirmSave(st).then((answer) => {
-      st.closing = false;
-      if (win.isDestroyed()) return;
-      if (answer === 'discard' || (answer === 'saved' && !st.dirty)) { st.forceClose = true; win.close(); }
-      else if (answer === 'saved') win.close(); // edited again while saving: ask about the new changes
-    });
-  });
+  // unsaved documents: ask first; when the window held up a quit (⌘Q), the quit goes on afterwards
+  guardClose({ win, st, confirm: confirmSave, quitState, quit: () => app.quit() });
   // closing only happens once unsaved changes were saved or deliberately discarded
   win.on('closed', () => { for (const w of st.watchers.values()) { try { w.close(); } catch (_) {} } wins.delete(id); search.cancel(id); for (const d of st.drafts) recovery.remove(d); });
   win.on('enter-full-screen', () => win.webContents.send('fullscreen', true));
@@ -827,5 +819,6 @@ else {
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
 
-  app.on('window-all-closed', () => { if (!isMac) app.quit(); });
+  app.on('before-quit', () => quitState.start());
+  app.on('window-all-closed', () => { if (!isMac || quitState.active()) app.quit(); });
 }

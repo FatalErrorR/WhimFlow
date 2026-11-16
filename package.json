@@ -9,10 +9,10 @@
   "scripts": {
     "build": "node scripts/build.js",
     "start": "npm run build && electron .",
-    "test": "npm run build && node test/unit.js && node test/import.js && node test/sync-server.js && node test/sync-engine.js && node test/sync-desktop.js && node test/smoke.js && node test/features.js && node test/docs.js && node test/code.js && node test/preview.js && node test/layout.js && node test/safety.js && node test/sync-app.js",
+    "test": "npm run build && node test/unit.js && node test/import.js && node test/closing.js && node test/sync-server.js && node test/sync-engine.js && node test/sync-desktop.js && node test/smoke.js && node test/features.js && node test/docs.js && node test/code.js && node test/preview.js && node test/layout.js && node test/safety.js && node test/sync-app.js",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never",
-    "test:unit": "node test/unit.js && node test/import.js",
+    "test:unit": "node test/unit.js && node test/import.js && node test/closing.js",
     "build:mobile": "node scripts/build.js mobile && cd mobile && npx cap sync ios",
     "test:mobile": "node scripts/build.js mobile && node test/mobile.js",
     "test:sync": "node test/sync-server.js && node test/sync-engine.js && node test/sync-desktop.js"
