@@ -193,6 +193,18 @@ md.renderer.rules.image = (tokens, idx, opts, env, self) => {
   return defaultImage(tokens, idx, opts, env, self);
 };
 
+// An image written as an <img> tag (what a resized or aligned image becomes, see editor/images.js)
+// is found where the document is, like ![]() above: its src is resolved against the document's folder.
+const IMG_SRC = /(<img\b[^>]*?\bsrc\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/gi;
+const resolveImgTags = (html, base) => html.replace(IMG_SRC, (m, head, dq, sq, bare) => {
+  const src = dq ?? sq ?? bare;
+  return `${head}"${resolveSrc(src.replace(/&amp;/g, '&'), base).replace(/"/g, '&quot;')}"`;
+});
+for (const rule of ['html_block', 'html_inline']) {
+  const original = md.renderer.rules[rule];
+  md.renderer.rules[rule] = (tokens, idx, opts, env, self) => resolveImgTags(original(tokens, idx, opts, env, self), env && env.base);
+}
+
 export function resolveSrc(src, base) {
   if (src && platform.windows && /^[A-Za-z]:[\\/]/.test(src)) return fileUrl(src); // a Windows path, not a "c:" URL
   if (!src || /^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('#')) return src;

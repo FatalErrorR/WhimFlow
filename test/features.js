@@ -158,6 +158,13 @@ Closing words.
   await page.locator('.cm-image').hover();
   await page.locator('.cm-img-bar button', { hasText: '↔' }).click();
   await waitVal(/<img src="assets\/pic\.png" alt="pic" width="50%" style="display:block;margin:0 auto">/, 'centre the image');
+  // the final view shows the resized image too: its src is found next to the document, like ![]()
+  await run('preview');
+  await page.waitForFunction(() => { const i = document.querySelector('#preview-doc img'); return i && i.complete && i.naturalWidth === 400; }, null, { timeout: 8000 })
+    .catch(async () => { throw new Error('resized image not shown in the final view: ' + await page.evaluate(() => (document.querySelector('#preview-doc img') || {}).outerHTML)); });
+  const shown = await page.evaluate(() => { const i = document.querySelector('#preview-doc img'); return i.getBoundingClientRect().width / document.querySelector('#preview-doc').getBoundingClientRect().width; });
+  assert(shown > 0.3 && shown < 0.6, 'at about half the width in the final view: ' + shown);
+  await run('preview');
   await page.waitForTimeout(200);
   const box = await page.locator('.cm-image-frame').boundingBox();
   const line = await page.evaluate(() => document.querySelector('.cm-line').getBoundingClientRect().width);
