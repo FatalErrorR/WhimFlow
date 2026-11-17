@@ -138,6 +138,24 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   }
   step('indented lines are text with their indentation; a blank line splits units; "正文区不换行" is off by default');
 
+  // heading levels read apart from the text: each level its own size, a faint level label beside it (one line)
+  {
+    const before = await W(() => window.__whimflow.editor.getValue());
+    await W(() => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: '## 二\n### 三\n#### 四\n##### 五\n正文' }, selection: { anchor: 0 } }); v.contentDOM.blur(); });
+    await sleep(300);
+    const ed = await W(() => ['cm-h2', 'cm-h3', 'cm-h4', 'cm-h5'].map((c) => { const l = document.querySelector('.cm-line.' + c), b = getComputedStyle(l, '::before'); return { size: parseFloat(getComputedStyle(l).fontSize), label: b.content, oneLine: parseFloat(b.height) < 14 || b.height === 'auto' }; }));
+    const body = await W(() => parseFloat(getComputedStyle([...document.querySelectorAll('.cm-line')].pop()).fontSize));
+    assert.deepStrictEqual(ed.map((x) => x.label), ['"H2"', '"H3"', '"H4"', '"H5"'], 'editor: level labels');
+    assert(ed[0].size > ed[1].size && ed[1].size > ed[2].size && ed[2].size >= body, 'editor: each level smaller than the one above, none below the text: ' + JSON.stringify([ed.map((x) => x.size), body]));
+    await page.locator('#m-bar .m-seg button[data-mode="read"]').tap();
+    await page.waitForFunction(() => document.querySelectorAll('#preview-doc h5').length === 1, null, { timeout: 5000 });
+    const pv = await W(() => ['h2', 'h3', 'h4', 'h5'].map((h) => { const e = document.querySelector('#preview-doc ' + h), a = getComputedStyle(e, '::after'); return { label: a.content, h: e.getBoundingClientRect().height, fs: parseFloat(getComputedStyle(e).fontSize), lh: parseFloat(getComputedStyle(e).lineHeight) }; }));
+    assert.deepStrictEqual(pv.map((x) => x.label), ['"H2"', '"H3"', '"H4"', '"H5"'], 'final view: level labels');
+    await page.locator('#m-bar .m-seg button[data-mode="write"]').tap();
+    await W((t) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } }); }, before);
+  }
+  step('heading levels: each its own size, with a level label beside it, in the editor and the final view');
+
   // the sheet: outline
   await W(() => { const v = window.__whimflow.editor.view; const ins = '\n\n## 周末\n\n水果'; v.dispatch({ changes: { from: v.state.doc.length, insert: ins }, selection: { anchor: v.state.doc.length + ins.length } }); });
   await page.locator('#m-bar .m-more').tap();

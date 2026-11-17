@@ -100,6 +100,7 @@ function createWindow(opts = {}) {
   const win = new BrowserWindow({
     width: 1000, height: 760, minWidth: 420, minHeight: 300, ...pos,
     show: false,
+    ...(hidden ? { paintWhenInitiallyHidden: true } : {}),
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     // The window buttons (about 16 pt tall) share one centre line with the header rows
     // drawn by app.css: 28 px from the top (window padding 6 + border 1 + header 21).
@@ -108,6 +109,8 @@ function createWindow(opts = {}) {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, nodeIntegration: false, sandbox: false, spellcheck: true,
+      // hidden (tests, screenshots): keep drawing although never shown, so a screenshot is not left waiting for a frame
+      ...(hidden ? { backgroundThrottling: false } : {}),
     },
   });
   // docs/activeId mirror what the renderer has open; filePath and dirty describe the

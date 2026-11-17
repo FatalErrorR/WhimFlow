@@ -239,6 +239,15 @@ body[data-rtab="mindmap"] #mindmap, body[data-rtab="preview"] #preview, body[dat
 #preview-doc pre[data-title]:hover { box-shadow: -12px 0 0 -10px color-mix(in srgb, var(--muted) 45%, transparent); }
 #preview-doc pre[data-title].here { box-shadow: -12px 0 0 -10px var(--accent) !important; }
 #preview-doc tr.here > :first-child { box-shadow: inset 2px 0 0 var(--accent); }
+/* the heading's level, faint, in the margin (as in the editor); in the app only, not in exports */
+#preview-doc :is(h2, h3, h4, h5, h6) { position: relative; }
+#preview-doc :is(h2, h3, h4, h5, h6)::after {
+  position: absolute; right: calc(100% + 6px); bottom: .35em; font: 600 9px/1 var(--mono-font); letter-spacing: .04em; white-space: nowrap;
+  color: var(--muted); opacity: .55; pointer-events: none; }
+#preview-doc h2::after { content: "H2"; } #preview-doc h3::after { content: "H3"; } #preview-doc h4::after { content: "H4"; }
+#preview-doc h5::after { content: "H5"; } #preview-doc h6::after { content: "H6"; }
+#preview-doc :is(h2, h3, h4, h5, h6):is(:hover, .here)::after { opacity: 0; } /* the caret's bar is there */
+body.m-phone #preview-doc :is(h2, h3, h4, h5, h6):is(:hover, .here)::after { opacity: .55; } /* phones draw no bar */
 #preview-doc li.here::marker { color: var(--accent); }
 
 /* mind map */
