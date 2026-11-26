@@ -54,7 +54,7 @@ function createSync({ local, remote, state, device, now = () => new Date(), hash
     const step = async (p, fn) => {
       try { await fn(); } catch (err) {
         if (err && err.code === 'auth') throw err;
-        out.errors.push({ path: p, error: String((err && err.message) || err) });
+        out.errors.push({ path: p, error: String((err && err.message) || err), code: err && err.code, used: err && err.used, quota: err && err.quota });
         log('sync error', p, err);
       }
     };
@@ -172,22 +172,47 @@ function createSync({ local, remote, state, device, now = () => new Date(), hash
   return { sync, isRunning: () => !!running, idle };
 }
 
-/** The sync server's API over fetch (Node's, the page's, or one that goes through native code). */
+/**
+ * The sync server's API over fetch (Node's, the page's, or one that goes through native code).
+ * `token` is this device's sign-in (or, before the server has accounts, the shared token).
+ */
 function createRemote({ url, token, fetch: f = globalThis.fetch }) {
   const root = String(url || '').replace(/\/+$/, '');
   const q = (p) => '?path=' + encodeURIComponent(p);
-  async function call(method, route, { body, headers } = {}) {
+  async function call(method, route, { body, headers, signIn } = {}) {
     let r;
     try {
-      r = await f(root + route, { method, body, headers: { Authorization: 'Bearer ' + token, ...(headers || {}) } });
+      r = await f(root + route, { method, body, headers: { ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(headers || {}) } });
     } catch (err) {
       throw Object.assign(new Error('offline: ' + ((err && err.message) || err)), { code: 'offline' });
     }
-    if (r.status === 401) throw Object.assign(new Error('the server did not accept the token'), { code: 'auth' });
+    if (r.status === 401 && !signIn) throw Object.assign(new Error('signed out: sign in again'), { code: 'auth' });
     return r;
   }
-  const fail = async (r) => { let m = ''; try { m = (await r.json()).error; } catch (_) {} return new Error(`server: ${r.status} ${m || ''}`.trim()); };
+  const fail = async (r) => {
+    let j = {}; try { j = await r.json(); } catch (_) {}
+    return Object.assign(new Error(`server: ${r.status} ${j.error || ''}`.trim()), { code: j.error, status: r.status, ...j });
+  };
+  /** A JSON call about the account; throws { code } when refused. */
+  async function json(method, route, body, opts) {
+    const r = await call(method, route, { ...(body ? { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } } : {}), ...opts });
+    if (!r.ok) throw await fail(r);
+    return r.json();
+  }
   return {
+    // ---- the account ----
+    /** Sign in: { token, account }; refused: code wrong | locked (retryAfter) | disabled | setup (no accounts yet) */
+    login: (name, password, device) => json('POST', '/v1/login', { name, password, device }, { signIn: true }),
+    /** The first account (the administrator), from the shared token. */
+    setup: (name, password, device) => json('POST', '/v1/setup', { name, password, device }),
+    me: () => json('GET', '/v1/me'),
+    logout: () => json('POST', '/v1/logout'),
+    signOutDevice: (id) => json('DELETE', '/v1/devices?id=' + encodeURIComponent(id)),
+    changePassword: (oldPassword, newPassword) => json('POST', '/v1/password', { old: oldPassword, new: newPassword }, { signIn: true }),
+    users: () => json('GET', '/v1/users'),
+    createUser: (name, password, quota) => json('POST', '/v1/users', { name, password, quota }),
+    updateUser: (name, patch) => json('PATCH', '/v1/users?name=' + encodeURIComponent(name), patch),
+    // ---- files ----
     async ping() { const r = await call('GET', '/v1/ping'); if (!r.ok) throw await fail(r); return r.json(); },
     async manifest() { const r = await call('GET', '/v1/manifest'); if (!r.ok) throw await fail(r); return r.json(); },
     async get(p) {
@@ -199,7 +224,7 @@ function createRemote({ url, token, fetch: f = globalThis.fetch }) {
     async put(p, bytes, { ifMatch, create }) {
       const r = await call('PUT', '/v1/file' + q(p), { body: bytes, headers: create ? { 'If-None-Match': '*' } : { 'If-Match': ifMatch } });
       if (r.status === 412) return { conflict: true, current: (await r.json()).current };
-      if (!r.ok) throw await fail(r);
+      if (!r.ok) throw await fail(r); // 507: past the account's space (code quota, used, quota)
       return { ok: true, v: (await r.json()).v };
     },
     async del(p, ifMatch) {
@@ -231,10 +256,12 @@ function normalizeUrl(input) {
 }
 
 /**
- * When and how a device syncs, the same on the desktop and the iPhone: connect (the server checks
- * the address and token first), a pass a moment after a local change, one every `every` ms, one on
- * request; notify() hears { state: off|syncing|ok|offline|auth|error, at, changed, conflicts, message }.
- * tokens: { get(), set(t), clear() } (may be async: the keychain);  getUrl/setUrl: the address setting.
+ * When and how a device syncs, the same on the desktop and the iPhone: sign in (by name and
+ * password; the server keeps the account and its space), a pass a moment after a local change, one
+ * every `every` ms, one on request; notify() hears
+ * { state: off|syncing|ok|offline|auth|quota|error, at, changed, conflicts, message, used, quota }.
+ * tokens: { get(), set(t), clear() } (may be async: the keychain) keep this device's sign-in;
+ * getUrl/setUrl: the address setting.
  */
 function createSyncController({ local, state, tokens, getUrl, setUrl, notify, device, fetch, hash, every = 60000, soonMs = 2000 }) {
   let engine = null, status = { state: 'off' }, timer = null, soon = null, lastNudge = 0;
@@ -253,11 +280,13 @@ function createSyncController({ local, state, tokens, getUrl, setUrl, notify, de
     try {
       const r = await e.sync();
       if (e !== engine) return status; // disconnected meanwhile
+      const full = r.errors.find((x) => x.code === 'quota');
       setStatus({
-        state: r.errors.length ? 'error' : 'ok', at: Date.now(),
+        state: full ? 'quota' : r.errors.length ? 'error' : 'ok', at: Date.now(),
         changed: r.down.length + r.removedHere.length + r.conflicts.length > 0,
         conflicts: r.conflicts.map((c) => c.copy || c.path),
         message: r.errors.length ? `${r.errors[0].path}: ${r.errors[0].error}` : '',
+        ...(full ? { used: full.used, quota: full.quota } : {}),
       });
     } catch (err) {
       if (e !== engine) return status;
@@ -273,23 +302,57 @@ function createSyncController({ local, state, tokens, getUrl, setUrl, notify, de
     changed() { if (!engine) return; clearTimeout(soon); soon = setTimeout(run, soonMs); },
     /** The app came to the front: sync, at most every 20 s. */
     nudge() { if (engine && Date.now() - lastNudge > 20000) { lastNudge = Date.now(); run(); } },
-    async connect({ url, token }) {
-      const u = normalizeUrl(url), tk = String(token || '').trim();
+    /**
+     * Sign in with { url, name, password } (or, to a server without accounts yet, { url, token }).
+     * Refused: { ok: false, error: url | name | wrong | locked (retryAfter) | disabled | setup | offline | ... }.
+     */
+    async connect({ url, name, password, token }) {
+      const u = normalizeUrl(url);
       if (!u) return { ok: false, error: 'url' };
-      if (!tk) return { ok: false, error: 'token' };
-      try { await createRemote({ url: u, token: tk, fetch }).ping(); }
-      catch (err) { return { ok: false, error: (err && err.code) || 'error', message: String((err && err.message) || err) }; }
+      let tk = String(token || '').trim(), account = null;
+      try {
+        if (tk) await createRemote({ url: u, token: tk, fetch }).ping();
+        else {
+          if (!String(name || '').trim() || !password) return { ok: false, error: 'name' };
+          const r = await createRemote({ url: u, fetch }).login(String(name).trim(), String(password), device);
+          tk = r.token; account = r.account;
+        }
+      } catch (err) { return { ok: false, error: (err && err.code) || 'error', retryAfter: err && err.retryAfter, message: String((err && err.message) || err) }; }
       if (getUrl() !== u) await state.clear(); // another server: merge from scratch, never delete
       await tokens.set(tk);
       await setUrl(u);
       await build();
       run();
-      return { ok: true, url: u };
+      return { ok: true, url: u, account };
     },
-    /** Stop syncing; the files stay here and on the server. */
+    /** The first account, the administrator, on a server this device reaches with the shared token. */
+    async setup({ name, password }) {
+      const url = getUrl(), token = url ? await tokens.get() : null;
+      if (!url || !token) return { ok: false, error: 'off' };
+      let r;
+      try { r = await createRemote({ url, token, fetch }).setup(String(name || '').trim(), String(password || ''), device); }
+      catch (err) { return { ok: false, error: (err && err.code) || 'error', message: String((err && err.message) || err) }; }
+      if (engine) await engine.idle();
+      await tokens.set(r.token); // the same library, now the account's: what this device knows still holds
+      await build();
+      run();
+      return { ok: true, account: r.account };
+    },
+    /** The account: me, signOutDevice, changePassword, users, createUser, updateUser. */
+    async account(method, args = []) {
+      const ok = ['me', 'signOutDevice', 'changePassword', 'users', 'createUser', 'updateUser'];
+      if (!ok.includes(method)) return { ok: false, error: 'method' };
+      const url = getUrl(), token = url ? await tokens.get() : null;
+      if (!url || !token) return { ok: false, error: 'off' };
+      try { return { ok: true, result: await createRemote({ url, token, fetch })[method](...args) }; }
+      catch (err) { return { ok: false, error: (err && err.code) || 'error', message: String((err && err.message) || err) }; }
+    },
+    /** Sign out and stop syncing; the files stay here and on the server. */
     async disconnect() {
       const e = engine;
       clearTimeout(soon);
+      const url = getUrl(), token = url ? await tokens.get() : null;
+      if (url && token) await Promise.race([createRemote({ url, token, fetch }).logout().catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
       await tokens.clear();
       await setUrl('');
       await build(); // no engine from here on: nothing new starts

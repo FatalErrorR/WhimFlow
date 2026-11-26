@@ -30,7 +30,7 @@ const step = (name) => console.log('  ✓', name);
     // ---- access ----
     assert.strictEqual((await call('GET', '/v1/ping', { token: null })).status, 401, 'no token');
     assert.strictEqual((await call('GET', '/v1/ping', { token: 'x'.repeat(48) })).status, 401, 'wrong token');
-    assert.deepStrictEqual((await call('GET', '/v1/ping')).json, { ok: true, version: 1 });
+    assert.deepStrictEqual((await call('GET', '/v1/ping')).json, { ok: true, version: 2, accounts: false }, 'before the first account: the shared token, as before');
     step('a token is required');
 
     // ---- the iPhone app's page may call it; other web pages may not ----

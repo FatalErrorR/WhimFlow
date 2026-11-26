@@ -512,6 +512,8 @@ export function createMobileApi(hooks = {}) {
     syncConnect: (req) => syncCtl.connect(req || {}),
     syncDisconnect: () => syncCtl.disconnect(),
     syncNow: () => syncCtl.syncNow(),
+    syncSetup: (req) => syncCtl.setup(req || {}),
+    syncAccount: (method, args) => syncCtl.account(String(method), Array.isArray(args) ? args : []),
     onSyncStatus: on('sync-status'),
     onCmd: on('cmd'), onLoad: on('load'), onFolder: on('folder'), onSetting: on('setting'), onFileChanged: on('file-changed'),
     onRenamed: on('renamed'), onTreeAction: on('tree-action'), onJump: on('jump'), onShowDoc: on('show-doc'), onFullscreen: on('fullscreen'),

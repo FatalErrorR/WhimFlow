@@ -1,13 +1,23 @@
 // Preferences: one quiet sheet. Every change applies immediately, in every window.
-import { $, t } from '../util.js';
+import { $, t, prompt } from '../util.js';
 import { setLineBreaks } from '../render.js';
+
+/** 1536 -> "1.5 KB", 1073741824 -> "1 GB" */
+export function sizeText(n) {
+  if (!(n >= 0)) return '';
+  const u = [['GB', 1024 ** 3], ['MB', 1024 ** 2], ['KB', 1024]].find(([, v]) => n >= v);
+  if (!u) return n + ' B';
+  const x = n / u[1];
+  return (x >= 100 || Number.isInteger(x) ? Math.round(x) : x.toFixed(1)) + ' ' + u[0];
+}
 
 /** One line about the sync, for Settings and the sidebar. */
 export function syncText(s, short = false) {
   if (!s || s.state === 'off') return short ? '' : t('未连接服务器', 'Not connected');
   if (s.state === 'syncing') return t('正在同步…', 'Syncing…');
   if (s.state === 'offline') return short ? t('离线', 'Offline') : t('连不上服务器，有网时会自动同步', 'Offline; syncs again when the server is reachable');
-  if (s.state === 'auth') return short ? t('同步出错', 'Sync error') : t('服务器不接受这个令牌，请断开后重新连接', 'The server refused the token; disconnect and connect again');
+  if (s.state === 'auth') return short ? t('需要重新登录', 'Sign in again') : t('登录已失效，请重新登录', 'Signed out; sign in again');
+  if (s.state === 'quota') return short ? t('空间已满', 'Space full') : t(`空间已满（已用 ${sizeText(s.used)} / ${sizeText(s.quota)}），新的改动暂时传不上去`, `Space full (${sizeText(s.used)} of ${sizeText(s.quota)}); new changes wait`);
   if (s.state === 'error') return short ? t('同步出错', 'Sync error') : t('同步出错：', 'Sync error: ') + (s.message || '');
   const at = s.at ? new Date(s.at).toLocaleTimeString(t('zh-CN', 'en-US'), { hour: '2-digit', minute: '2-digit' }) : '';
   return t('已同步', 'Synced') + (at && !short ? ' ' + at : '');
@@ -78,45 +88,167 @@ export function initSettings(ctx) {
   const button = (label, fn, cls = '') => { const b = document.createElement('button'); b.className = 'set-btn ' + cls; b.textContent = label; b.onclick = fn; return b; };
   const input = (type, placeholder) => { const i = document.createElement('input'); i.type = type; i.placeholder = placeholder; i.spellcheck = false; i.autocapitalize = 'off'; i.autocomplete = 'off'; return i; };
   const wrap = (...kids) => { const b = document.createElement('div'); b.className = 'textset'; b.append(...kids); return b; };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const row = (...kids) => { const b = el('div', 'sync-actions'); b.append(...kids); return b; };
+  const msgBox = () => el('div', 'sync-msg');
+  const ERR = {
+    url: () => t('地址不对（需要 https）', 'Not a valid address (https is required)'),
+    name: () => t('请填写用户名和密码', 'Enter the name and the password'),
+    wrong: () => t('用户名或密码不对', 'Wrong name or password'),
+    disabled: () => t('这个账号已被停用', 'This account is disabled'),
+    setup: () => t('这个服务器还没有账号：请在已经连上它的设备上，到「设置 → 同步」创建管理员账号', 'This server has no accounts yet: create the administrator’s on a device already connected to it'),
+    offline: () => t('连不上这个服务器', 'Could not reach this server'),
+    password: () => t('密码至少 8 位', 'At least 8 characters'),
+    taken: () => t('这个用户名已经有人用了', 'This name is taken'),
+    quota: () => t('空间大小不对', 'Not a valid size'),
+  };
+  const errText = (r) => (r && r.error === 'locked' ? t(`输错太多次，请 ${Math.ceil((r.retryAfter || 900) / 60)} 分钟后再试`, `Too many tries; try again in ${Math.ceil((r.retryAfter || 900) / 60)} min`)
+    : (ERR[r && r.error] || (() => t('出错了：', 'Something went wrong: ') + ((r && r.message) || '')))());
+  const SIZES = [[500 * 1024 ** 2, '500 MB'], [1024 ** 3, '1 GB'], [5 * 1024 ** 3, '5 GB'], [10 * 1024 ** 3, '10 GB']];
+
   async function renderSync() {
     if (!api.syncConfig) { syncBox.textContent = ''; return; }
     const cfg = await api.syncConfig();
     syncBox.textContent = '';
-    if (cfg.url) {
-      const state = document.createElement('span'); state.className = 'sync-state'; state.textContent = syncText(cfg.status);
-      const row = document.createElement('div'); row.className = 'sync-actions';
-      row.append(state,
-        button(t('立即同步', 'Sync now'), () => api.syncNow()),
-        button(t('断开', 'Disconnect'), async () => {
-          if (!window.confirm(t('断开后不再同步。本机和服务器上的文件都会保留。', 'Stop syncing? The files stay, here and on the server.'))) return;
-          await api.syncDisconnect(); renderSync();
-        }));
-      syncBox.append(field(t('服务器', 'Server'), cfg.url.replace(/^https:\/\//, ''), row));
-      syncBox.lastChild.classList.add('sync-row');
-      return;
+    if (cfg.url && cfg.status.state !== 'auth') {
+      const me = api.syncAccount ? await api.syncAccount('me') : { ok: false, error: 'setup' };
+      if (me.ok) return renderAccount(cfg, me.result);
+      if (me.error === 'setup') return renderSetup(cfg);
+      return renderServerOnly(cfg); // offline: what is known
     }
-    const url = input('text', 'whimflow.example.com'), token = input('password', t('令牌', 'Token'));
-    const msg = document.createElement('div'); msg.className = 'sync-msg';
-    const go = button(t('连接', 'Connect'), async () => {
-      msg.textContent = t('正在连接…', 'Connecting…'); go.disabled = true;
-      const r = await api.syncConnect({ url: url.value, token: token.value });
+    renderLogin(cfg);
+  }
+  const stateLine = (cfg) => el('span', 'sync-state', syncText(cfg.status));
+  const syncNowBtn = () => button(t('立即同步', 'Sync now'), () => api.syncNow());
+  const signOutBtn = (label) => button(label, async () => {
+    if (!window.confirm(t('退出后本机不再同步。本机和服务器上的文件都会保留。', 'Stop syncing on this device? The files stay, here and on the server.'))) return;
+    await api.syncDisconnect(); renderSync();
+  });
+
+  /** Not signed in (or signed out by the server): the address, the name, the password. */
+  function renderLogin(cfg) {
+    const url = input('text', 'whimflow.example.com'), name = input('text', t('用户名', 'Name')), pass = input('password', t('密码', 'Password'));
+    url.value = cfg.url ? cfg.url.replace(/^https:\/\//, '') : '';
+    const msg = msgBox();
+    if (cfg.url && cfg.status.state === 'auth') msg.textContent = t('登录已失效，请重新登录', 'Signed out; sign in again');
+    const go = button(t('登录', 'Sign in'), async () => {
+      msg.textContent = t('正在登录…', 'Signing in…'); go.disabled = true;
+      const r = await api.syncConnect({ url: url.value, name: name.value, password: pass.value });
       go.disabled = false;
       if (r && r.ok) { renderSync(); return; }
-      msg.textContent = ({
-        url: t('地址不对（需要 https）', 'Not a valid address (https is required)'),
-        token: t('请填写令牌', 'Enter the token'),
-        auth: t('服务器不接受这个令牌', 'The server refused this token'),
-        offline: t('连不上这个服务器', 'Could not reach this server'),
-      })[r && r.error] || t('连接失败：', 'Could not connect: ') + ((r && r.message) || '');
+      msg.textContent = errText(r);
     }, 'primary');
-    token.onkeydown = (e) => { if (e.key === 'Enter') go.click(); };
+    pass.onkeydown = (e) => { if (e.key === 'Enter') go.click(); };
     syncBox.append(
       field(t('服务器地址', 'Server address'), t('你的 WhimFlow 同步服务器', 'Your WhimFlow sync server'), wrap(url)),
-      field(t('令牌', 'Token'), t('服务器上生成的访问令牌，只需填一次', 'The access token from the server; entered once'), wrap(token, go, msg)),
+      field(t('账号', 'Account'), t('由服务器的管理员创建；每台设备登录一次', 'Made by the server’s administrator; sign in once per device'), wrap(name, pass, go, msg)),
     );
-    syncBox.querySelectorAll('.set-row').forEach((r) => r.classList.add('sync-row'));
   }
-  if (api.onSyncStatus) api.onSyncStatus((st) => { const el = syncBox.querySelector('.sync-state'); if (el) el.textContent = syncText(st); });
+
+  /** Connected with the shared token to a server without accounts: make the administrator's. */
+  function renderSetup(cfg) {
+    syncBox.append(field(t('服务器', 'Server'), cfg.url.replace(/^https:\/\//, ''), row(stateLine(cfg), syncNowBtn(), signOutBtn(t('断开', 'Disconnect')))));
+    const name = input('text', t('管理员用户名', 'Administrator name')), pass = input('password', t('密码（至少 8 位）', 'Password (8 or more)')), again = input('password', t('再输一次密码', 'The password again'));
+    const msg = msgBox();
+    const go = button(t('创建管理员账号', 'Create the administrator'), async () => {
+      if (pass.value !== again.value) { msg.textContent = t('两次输入的密码不一样', 'The passwords differ'); return; }
+      msg.textContent = t('正在创建…', 'Creating…'); go.disabled = true;
+      const r = await api.syncSetup({ name: name.value, password: pass.value });
+      go.disabled = false;
+      if (r && r.ok) { renderSync(); return; }
+      msg.textContent = errText(r);
+    }, 'primary');
+    syncBox.append(field(t('升级为账号登录', 'Switch to accounts'),
+      t('这个服务器还在用共享令牌。创建管理员账号后，现在的文件库归这个账号所有，其他设备改用用户名和密码登录，令牌作废', 'This server still uses the shared token. The library becomes the administrator’s; other devices then sign in by name and password, and the token stops working'),
+      wrap(name, pass, again, go, msg)));
+  }
+
+  function renderServerOnly(cfg) {
+    syncBox.append(field(t('服务器', 'Server'), cfg.url.replace(/^https:\/\//, ''), row(stateLine(cfg), syncNowBtn(), signOutBtn(t('退出登录', 'Sign out')))));
+  }
+
+  /** Signed in: the account, its space, its devices, the password; the administrator's accounts. */
+  function renderAccount(cfg, acc) {
+    syncBox.append(field(acc.name + (acc.admin ? t('（管理员）', ' (administrator)') : ''), cfg.url.replace(/^https:\/\//, ''),
+      row(stateLine(cfg), syncNowBtn(), signOutBtn(t('退出登录', 'Sign out')))));
+    const pct = acc.quota ? Math.min(100, Math.round(acc.used / acc.quota * 100)) : 0;
+    const bar = el('div', 'sync-usage' + (pct >= 90 ? ' full' : '')); const fill = el('i'); fill.style.width = pct + '%'; bar.append(fill);
+    syncBox.append(field(t('空间', 'Space'), t(`已用 ${sizeText(acc.used)} / ${sizeText(acc.quota)}`, `${sizeText(acc.used)} of ${sizeText(acc.quota)} used`), bar));
+    const devices = el('div', 'sync-devices');
+    for (const d of acc.devices) {
+      const line = el('div', 'sync-device'); line.append(el('span', '', d.device));
+      if (d.current) line.append(el('em', '', t('本机', 'this device')));
+      else line.append(button(t('移除', 'Sign out'), async () => {
+        if (!window.confirm(t(`让「${d.device}」退出登录？它要重新输入密码才能再同步。`, `Sign “${d.device}” out? It needs the password to sync again.`))) return;
+        await api.syncAccount('signOutDevice', [d.id]); renderSync();
+      }));
+      devices.append(line);
+    }
+    syncBox.append(field(t('已登录的设备', 'Signed-in devices'), t('丢了的设备可以在这里移除', 'Sign a lost device out here'), devices));
+    // the password
+    const oldP = input('password', t('当前密码', 'Current password')), newP = input('password', t('新密码（至少 8 位）', 'New password (8 or more)'));
+    const msg = msgBox();
+    const save = button(t('修改密码', 'Change password'), async () => {
+      const r = await api.syncAccount('changePassword', [oldP.value, newP.value]);
+      if (r.ok) { oldP.value = newP.value = ''; msg.textContent = t('已修改；其他设备需要重新登录', 'Changed; other devices sign in again'); return; }
+      msg.textContent = r.error === 'auth' || r.error === 'wrong' ? t('当前密码不对', 'Wrong current password') : errText(r);
+    });
+    syncBox.append(field(t('密码', 'Password'), t('修改后，其他设备需要重新登录', 'Other devices sign in again afterwards'), wrap(oldP, newP, save, msg)));
+    if (acc.admin) renderAdmin();
+  }
+
+  /** The administrator: every account, its space; new accounts. */
+  async function renderAdmin() {
+    const box = el('div');
+    syncBox.append(section(t('账号管理', 'Accounts')), box);
+    const r = await api.syncAccount('users');
+    if (!r.ok) { box.append(el('div', 'sync-msg', errText(r))); return; }
+    for (const u of r.result.users) {
+      const pct = u.quota ? Math.min(100, Math.round(u.used / u.quota * 100)) : 0;
+      const bar = el('div', 'sync-usage' + (pct >= 90 ? ' full' : '')); const fill = el('i'); fill.style.width = pct + '%'; bar.append(fill);
+      const actions = row(
+        button(t('调整空间', 'Space'), async () => {
+          const v = await prompt(t(`「${u.name}」的空间（GB）`, `Space for “${u.name}” (GB)`), String(Math.round(u.quota / 1024 ** 3 * 10) / 10));
+          if (v == null) return;
+          const gb = parseFloat(v);
+          if (!(gb > 0)) { window.alert(ERR.quota()); return; }
+          await api.syncAccount('updateUser', [u.name, { quota: Math.round(gb * 1024 ** 3) }]); renderSync();
+        }),
+        button(t('重置密码', 'Reset password'), async () => {
+          const v = await prompt(t(`「${u.name}」的新密码（至少 8 位）`, `New password for “${u.name}” (8 or more)`), '');
+          if (!v) return;
+          const x = await api.syncAccount('updateUser', [u.name, { password: v }]);
+          window.alert(x.ok ? t('已重置；他的设备需要用新密码重新登录', 'Reset; their devices sign in again with it') : errText(x));
+        }),
+        ...(u.admin ? [] : [button(u.disabled ? t('启用', 'Enable') : t('停用', 'Disable'), async () => {
+          if (!u.disabled && !window.confirm(t(`停用「${u.name}」？他的设备会退出登录，文件保留在服务器上。`, `Disable “${u.name}”? Their devices are signed out; the files stay on the server.`))) return;
+          await api.syncAccount('updateUser', [u.name, { disabled: !u.disabled }]); renderSync();
+        })]),
+      );
+      const right = el('div', 'textset'); right.append(bar, actions);
+      box.append(field(u.name + (u.admin ? t('（管理员）', ' (administrator)') : '') + (u.disabled ? t('（已停用）', ' (disabled)') : ''),
+        t(`已用 ${sizeText(u.used)} / ${sizeText(u.quota)} · ${u.devices} 台设备`, `${sizeText(u.used)} of ${sizeText(u.quota)} · ${u.devices} device(s)`), right));
+    }
+    // a new account
+    const name = input('text', t('用户名', 'Name')), pass = input('password', t('初始密码（至少 8 位）', 'First password (8 or more)'));
+    const size = document.createElement('select'); size.className = 'sync-size';
+    for (const [v, label] of SIZES) { const o = document.createElement('option'); o.value = v; o.textContent = label; if (v === 1024 ** 3) o.selected = true; size.append(o); }
+    const msg = msgBox();
+    const go = button(t('创建账号', 'Create'), async () => {
+      const x = await api.syncAccount('createUser', [name.value.trim(), pass.value, +size.value]);
+      if (x.ok) { renderSync(); return; }
+      msg.textContent = x.error === 'name' ? t('用户名 2–32 位：字母、数字、汉字、_ . -', '2–32 letters, digits, _ . -') : errText(x);
+    }, 'primary');
+    box.append(field(t('新建账号', 'New account'), t('把用户名和初始密码告诉对方，他在自己的设备上登录', 'Give them the name and the password to sign in with'), wrap(name, pass, size, go, msg)));
+    box.querySelectorAll('.set-row').forEach((x) => x.classList.add('sync-row'));
+  }
+  let lastState = null;
+  if (api.onSyncStatus) api.onSyncStatus((st) => {
+    const line = syncBox.querySelector('.sync-state');
+    if (line) line.textContent = syncText(st);
+    if (st.state !== lastState && (st.state === 'auth' || lastState === 'auth') && !root.hidden) renderSync(); // signed out elsewhere: the sign-in form
+    lastState = st.state;
+  });
 
   function build() {
     const body = root.querySelector('.set-body');

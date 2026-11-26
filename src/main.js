@@ -518,6 +518,8 @@ handle('sync-config', () => ({ url: settings.syncUrl || '', library: deskSync &&
 handle('sync-connect', (_e, req) => deskSync.connect(req || {}));
 handle('sync-disconnect', () => deskSync.disconnect());
 handle('sync-now', () => deskSync.syncNow());
+handle('sync-setup', (_e, req) => deskSync.setup(req || {}));
+handle('sync-account', (_e, method, args) => deskSync.account(String(method), Array.isArray(args) ? args : []));
 
 // Image calls name the document they are for (docPath, null for an unsaved one):
 // the link is made relative to that document even if another one is active by the
@@ -808,7 +810,8 @@ else {
       trashItem: (p) => (testHooks && testHooks.trashItem ? testHooks.trashItem(p) : shell.trashItem(p)),
       getUrl: () => settings.syncUrl, setUrl: (u) => { settings.syncUrl = u; saveSettings(); },
       notify: (s) => { for (const w of wins.values()) w.win.webContents.send('sync-status', s); },
-      device: isMac ? 'Mac' : 'Windows',
+      // how this device is listed among the account's devices: "Mac（Chris 的 MacBook）"
+      device: `${isMac ? 'Mac' : 'Windows'}（${os.hostname().replace(/\.local$/, '')}）`,
     });
     deskSync.start();
     app.on('browser-window-focus', () => deskSync.focused());

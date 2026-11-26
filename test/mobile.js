@@ -382,8 +382,14 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
     env: { ...process.env, DATA: data, WHIMFLOW_TOKEN: TOKEN, PORT: '0', HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'inherit'],
   });
   const syncUrl = await new Promise((resolve) => syncProc.stdout.on('data', (d) => { const m = /on 127\.0\.0\.1:(\d+)/.exec(String(d)); if (m) resolve(`http://127.0.0.1:${m[1]}`); }));
-  const onServer = (rel) => (fs.existsSync(path.join(data, ...rel.split('/'))) ? fs.readFileSync(path.join(data, ...rel.split('/'))) : null);
-  const otherDevice = (rel, body, headers) => fetch(syncUrl + '/v1/file?path=' + encodeURIComponent(rel), { method: 'PUT', body, headers: { Authorization: 'Bearer ' + TOKEN, ...headers } });
+  // the server has accounts: the administrator, and an account for this phone's owner, made by them
+  const json = (route, body, token) => fetch(syncUrl + route, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(body) }).then((r) => r.json());
+  const ADMIN = (await json('/v1/setup', { name: 'chris', password: 'secret-pass', device: 'test' }, TOKEN)).token;
+  await json('/v1/users', { name: 'ann', password: 'ann-password' }, ADMIN);
+  const ANN = (await json('/v1/login', { name: 'ann', password: 'ann-password', device: 'another device' })).token;
+  const annRoot = () => path.join(data, '.users', JSON.parse(fs.readFileSync(path.join(data, '.accounts.json'), 'utf8')).users.find((u) => u.name === 'ann').id);
+  const onServer = (rel) => { const f = path.join(annRoot(), ...rel.split('/')); return fs.existsSync(f) ? fs.readFileSync(f) : null; };
+  const otherDevice = (rel, body, headers) => fetch(syncUrl + '/v1/file?path=' + encodeURIComponent(rel), { method: 'PUT', body, headers: { Authorization: 'Bearer ' + ANN, ...headers } });
   try {
     const iphone2 = await browser.newContext({ ...devices['iPhone 15'], locale: 'zh-CN' });
     page = await iphone2.newPage();
@@ -393,17 +399,23 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
     assert.strictEqual(await page.locator('#m-lib .m-local').innerText(), '保存在本机', 'not connected yet');
     await page.locator('#m-lib .m-local').tap(); // not connected: the chip opens Settings
     await page.waitForSelector('#settings:not([hidden]) input[type="password"]');
-    await page.locator('#settings input[type="text"]').first().fill(syncUrl);
-    await page.locator('#settings input[type="password"]').fill(TOKEN);
+    await page.locator('#settings input[type="text"]').nth(0).fill(syncUrl);
+    await page.locator('#settings input[type="text"]').nth(1).fill('ann');
+    await page.locator('#settings input[type="password"]').fill('wrong-pass');
+    await page.locator('#settings .set-btn.primary').tap();
+    await until(async () => /用户名或密码不对/.test(await page.locator('#settings .sync-msg').innerText()), 'a wrong password is refused');
+    await page.locator('#settings input[type="password"]').fill('ann-password');
     await page.locator('#settings .set-btn.primary').tap();
     await page.waitForSelector('#settings .sync-state', { timeout: 10000 });
+    await until(async () => /已用 .* \/ 1 GB/.test(await page.locator('#settings .set-body').innerText()), 'her space shows');
+    assert(!/账号管理/.test(await page.locator('#settings .set-body').innerText()), 'no account management for her');
     await until(() => onServer('手机笔记.md'), 'the phone\'s document reaches the server');
     assert.strictEqual(onServer('手机笔记.md').toString(), '# 手机笔记\n\n在 iPhone 上写的');
     await page.screenshot({ path: path.join(shots, 'm6-sync-settings.png') });
     await page.locator('#settings .set-close').tap();
     await until(async () => /已同步/.test(await page.locator('#m-lib .m-local').innerText()), 'the chip says synced');
     assert.strictEqual(await W(async () => (await window.api.syncConfig()).url), syncUrl);
-    step('sync: connect in Settings (the chip opens it); the phone\'s documents go up; the chip says "已同步"');
+    step('sync: sign in in Settings (the chip opens it); the phone\'s documents go up to her account; the chip says "已同步"');
 
     // what another device put on the server comes down: a document and an image, byte for byte
     const png = crypto.randomBytes(5000);
@@ -463,13 +475,57 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
     await until(async () => W(() => getComputedStyle(document.querySelector('#m-lib')).getPropertyValue('--pull').trim() === '0px'), 'the list settles back');
     step('pull the library down to sync: a short pull springs back, a long one syncs and shows the result');
 
-    assert.strictEqual(await W(async () => (await window.Capacitor.Plugins.Preferences.get({ key: 'keychain:syncToken' })).value), TOKEN, 'the token is in the (emulated) Keychain');
-    assert(!(await W(async () => (await window.Capacitor.Plugins.Preferences.get({ key: 'settings' })).value)).includes(TOKEN), 'and not in the settings');
+    const kept = await W(async () => (await window.Capacitor.Plugins.Preferences.get({ key: 'keychain:syncToken' })).value);
+    assert(kept && kept.length === 64, 'the sign-in is in the (emulated) Keychain');
+    const everything = await W(async () => { const P = window.Capacitor.Plugins.Preferences; const { keys } = await P.keys(); let all = ''; for (const k of keys) all += (await P.get({ key: k })).value; return all; });
+    assert(!everything.includes('ann-password'), 'the password is kept nowhere');
+    assert(!(await W(async () => (await window.Capacitor.Plugins.Preferences.get({ key: 'settings' })).value)).includes(kept), 'and the sign-in not in the settings');
+    // the administrator signs this phone out: it asks to sign in again
+    const devs = (await (await fetch(syncUrl + '/v1/me', { headers: { Authorization: 'Bearer ' + ANN } })).json()).devices;
+    await fetch(syncUrl + '/v1/devices?id=' + devs.find((d) => /iPhone/.test(d.device)).id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + ANN } });
+    await W(() => window.api.syncNow());
+    await until(async () => /重新登录/.test(await page.locator('#m-lib .m-local').innerText()), 'the chip asks to sign in again');
     await page.close();
-    step('the token is kept in the Keychain, not in the settings');
+    step('the sign-in is kept in the Keychain, the password nowhere; signed out from elsewhere, the phone asks to sign in again');
   } finally {
     syncProc.kill();
     fs.rmSync(data, { recursive: true, force: true });
+  }
+
+  // ---------- a device on the old shared token makes the administrator's account, in Settings ----------
+  {
+    const data2 = fs.mkdtempSync(path.join(os.tmpdir(), 'whimflow-mobile-setup-'));
+    const proc2 = spawn(process.execPath, [path.join(root, 'sync-server/server.js')], { env: { ...process.env, DATA: data2, WHIMFLOW_TOKEN: TOKEN, PORT: '0', HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'inherit'] });
+    const url2 = await new Promise((resolve) => proc2.stdout.on('data', (d) => { const m = /on 127\.0\.0\.1:(\d+)/.exec(String(d)); if (m) resolve(`http://127.0.0.1:${m[1]}`); }));
+    try {
+      page = await (await browser.newContext({ ...devices['iPhone 15'], locale: 'zh-CN' })).newPage();
+      page.on('pageerror', (e) => { errors.push(e.message); console.log('[pageerror]', e.message); });
+      await boot();
+      await W(() => window.api.mobile.writeFile('/WhimFlow/旧笔记.md', '# 旧笔记'));
+      assert((await W(([u, t]) => window.api.syncConnect({ url: u, token: t }), [url2, TOKEN])).ok, 'on the shared token, as the phone is today');
+      await until(() => fs.existsSync(path.join(data2, '旧笔记.md')), 'synced with the shared library');
+      await W(() => window.__whimflow.ctx.settingsUI.open());
+      await page.waitForSelector('#settings:not([hidden]) input[placeholder="管理员用户名"]');
+      await page.locator('#settings input[placeholder="管理员用户名"]').fill('chris');
+      await page.locator('#settings input[placeholder^="密码"]').fill('secret-pass');
+      await page.locator('#settings input[placeholder="再输一次密码"]').fill('other-pass');
+      await page.locator('#settings .set-btn.primary', { hasText: '创建管理员账号' }).tap();
+      await until(async () => /不一样/.test(await page.locator('#settings .sync-msg').innerText()), 'the passwords must match');
+      await page.locator('#settings input[placeholder="再输一次密码"]').fill('secret-pass');
+      await page.locator('#settings .set-btn.primary', { hasText: '创建管理员账号' }).tap();
+      await until(async () => /chris（管理员）/.test(await page.locator('#settings .set-body').innerText()), 'the account shows', 10000);
+      const users = JSON.parse(fs.readFileSync(path.join(data2, '.accounts.json'), 'utf8')).users;
+      assert(fs.existsSync(path.join(data2, '.users', users[0].id, '旧笔记.md')) && !fs.existsSync(path.join(data2, '旧笔记.md')), 'the library became the account\'s');
+      assert.strictEqual((await fetch(url2 + '/v1/manifest', { headers: { Authorization: 'Bearer ' + TOKEN } })).status, 401, 'the shared token stops working');
+      await W(() => window.api.mobile.writeFile('/WhimFlow/之后写的.md', '# 之后'));
+      await W(() => window.api.syncNow());
+      await until(() => fs.existsSync(path.join(data2, '.users', users[0].id, '之后写的.md')), 'and it syncs on, signed in');
+      await page.close();
+      step('a device on the shared token makes the administrator\'s account in Settings; the library becomes its; syncing goes on');
+    } finally {
+      proc2.kill();
+      fs.rmSync(data2, { recursive: true, force: true });
+    }
   }
 
   // ---------- iPad (landscape): the desktop islands ----------

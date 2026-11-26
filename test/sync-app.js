@@ -20,6 +20,11 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
   });
   const port = await new Promise((resolve) => server.stdout.on('data', (d) => { const m = /on 127\.0\.0\.1:(\d+)/.exec(String(d)); if (m) resolve(+m[1]); }));
   const url = `http://127.0.0.1:${port}`;
+  // the administrator's account (made, in real use, from a device still on the shared token)
+  const setup = await (await fetch(url + '/v1/setup', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'chris', password: 'secret-pass', device: 'test' }) })).json();
+  const ADMIN = setup.token;
+  // chris's library on the server (found by name: the test makes a second account later)
+  const lib = (rel) => path.join(data, '.users', JSON.parse(fs.readFileSync(path.join(data, '.accounts.json'), 'utf8')).users.find((u) => u.name === 'chris').id, ...rel.split('/'));
   const app = await _electron.launch({
     executablePath: require(path.join(root, 'node_modules/electron')),
     args: ['--no-sandbox', root, '--user-data-dir=' + path.join(work, 'ud')],
@@ -40,26 +45,36 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
     assert(/拖到这里/.test(await page.locator('#tree .tree-section.lib .side-empty').innerText()), 'which says how to fill it');
     step('a new window shows "我的文件库"');
 
-    // ---- connect in Settings ----
+    // ---- sign in in Settings ----
     await page.evaluate(() => window.__whimflow.run('settings'));
     await page.waitForSelector('#settings:not([hidden]) input[type="password"]');
-    await page.locator('#settings input[type="text"]').first().fill('http://example.com');
-    await page.locator('#settings input[type="password"]').fill(TOKEN);
-    await page.locator('#settings .set-btn.primary').click();
+    const [address, name] = [page.locator('#settings input[type="text"]').nth(0), page.locator('#settings input[type="text"]').nth(1)];
+    const password = page.locator('#settings input[type="password"]');
+    const signIn = page.locator('#settings .set-btn.primary', { hasText: '登录' });
+    await address.fill('http://example.com'); await name.fill('chris'); await password.fill('secret-pass');
+    await signIn.click();
     await until(async () => /https/.test(await page.locator('#settings .sync-msg').innerText()), 'the address is refused');
-    await page.locator('#settings input[type="text"]').first().fill(url);
-    await page.locator('#settings input[type="password"]').fill('x'.repeat(48));
-    await page.locator('#settings .set-btn.primary').click();
-    await until(async () => /不接受/.test(await page.locator('#settings .sync-msg').innerText()), 'the token is refused');
-    await page.locator('#settings input[type="password"]').fill(TOKEN);
-    await page.locator('#settings .set-btn.primary').click();
+    await address.fill(url); await password.fill('wrong-pass');
+    await signIn.click();
+    await until(async () => /用户名或密码不对/.test(await page.locator('#settings .sync-msg').innerText()), 'a wrong password is refused');
+    await password.fill('secret-pass');
+    await signIn.click();
     await page.waitForSelector('#settings .sync-state');
     await until(async () => /已同步/.test(await page.locator('#settings .sync-state').innerText()), 'synced');
+    const acct = await page.locator('#settings .set-body').innerText();
+    assert(/chris（管理员）/.test(acct) && /已用 .* \/ 1 GB/.test(acct) && /本机/.test(acct) && /账号管理/.test(acct), 'the account, its space, this device, the administrator\'s accounts: ' + acct.slice(0, 300));
+    // the administrator makes an account for someone else
+    await page.locator('#settings input[placeholder="用户名"]').fill('ann');
+    await page.locator('#settings input[placeholder^="初始密码"]').fill('ann-password');
+    await page.locator('#settings .set-btn.primary', { hasText: '创建账号' }).click();
+    await until(async () => /ann/.test(await page.locator('#settings .set-body').innerText()), 'the new account is listed');
+    const annLogin = await (await fetch(url + '/v1/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'ann', password: 'ann-password' }) })).json();
+    assert(annLogin.token && annLogin.account.quota === 1024 ** 3, 'she can sign in, with 1 GB');
     await page.screenshot({ path: path.join(shots, 'sync-settings.png') });
     await page.locator('#settings .set-close').click();
     assert(await page.evaluate(() => document.querySelector('#settings').hidden), 'settings closed');
     await until(async () => /已同步/.test(await page.locator('#tree .tree-root.lib .tree-root-meta').innerText()), 'the sidebar says so');
-    step('Settings > Sync: a wrong address or token is refused, the right one connects; the sidebar shows "已同步"');
+    step('Settings > Sync: sign in by name and password (wrong ones refused); the account, its space, its devices; the administrator makes an account');
 
     // ---- files dragged in from Finder are copied into the library and go up ----
     const src = path.join(work, 'desk');
@@ -69,7 +84,7 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
     const r = await page.evaluate(({ p, d }) => window.api.importFiles({ paths: [p], dir: d }), { p: path.join(src, '旅行.md'), d: library });
     assert.deepStrictEqual([r.added, r.images], [[path.join(library, '旅行.md')], 1]);
     assert.strictEqual(await page.evaluate(({ p }) => window.api.importFiles({ paths: [p], dir: '/tmp' }), { p: path.join(src, '旅行.md') }), null, 'only into the window\'s folder');
-    await until(() => fs.existsSync(path.join(data, '旅行.md')) && fs.existsSync(path.join(data, 'assets', '海.png')), 'the copied files reach the server');
+    await until(() => fs.existsSync(lib('旅行.md')) && fs.existsSync(lib('assets/海.png')), 'the copied files reach the server');
     assert(fs.existsSync(path.join(src, '旅行.md')), 'the original stays where it was');
     step('files dragged into the library are copied in, with their images, and reach the server');
 
@@ -89,7 +104,7 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
     // ---- a file another device put on the server comes down ----
     const phoneText = '# 手机上写的\n';
-    const put = await fetch(url + '/v1/file?path=' + encodeURIComponent('手机上写的.md'), { method: 'PUT', body: phoneText, headers: { Authorization: 'Bearer ' + TOKEN, 'If-None-Match': '*' } });
+    const put = await fetch(url + '/v1/file?path=' + encodeURIComponent('手机上写的.md'), { method: 'PUT', body: phoneText, headers: { Authorization: 'Bearer ' + ADMIN, 'If-None-Match': '*' } });
     assert.strictEqual(put.status, 200);
     await page.evaluate(() => window.api.syncNow());
     await until(async () => (await page.locator('.tree-item', { hasText: '手机上写的' }).count()) === 1, 'it shows in the tree');
@@ -109,10 +124,10 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
     // dropped onto the library while another folder is open: into the library
     const r2 = await page.evaluate(({ p, d }) => window.api.importFiles({ paths: [p], dir: d }), { p: path.join(other, '临时.md'), d: library });
     assert.deepStrictEqual(r2.added, [path.join(library, '临时.md')]);
-    await until(() => fs.existsSync(path.join(data, '临时.md')), 'and reaches the server');
+    await until(() => fs.existsSync(lib('临时.md')), 'and reaches the server');
     fs.rmSync(path.join(other, '临时.md')); // the original was temporary: the copy in the library stays
     await page.evaluate(() => window.api.syncNow());
-    assert(fs.existsSync(path.join(library, '临时.md')) && fs.existsSync(path.join(data, '临时.md')), 'the copy in the library stays when the original goes');
+    assert(fs.existsSync(path.join(library, '临时.md')) && fs.existsSync(lib('临时.md')), 'the copy in the library stays when the original goes');
     // a folder opened by hand: below the library too, and closing it leaves the library
     const proj = path.join(work, '项目'); fs.mkdirSync(proj); fs.writeFileSync(path.join(proj, 'a.md'), '# a\n');
     await page.evaluate((p) => window.api.openPath(p), proj);
@@ -138,10 +153,10 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
     // ---- disconnect: everything stays ----
     page.once('dialog', (d) => d.accept());
     await page.evaluate(() => window.__whimflow.run('settings'));
-    await page.locator('#settings .set-btn', { hasText: '断开' }).click();
-    await page.waitForSelector('#settings input[type="password"]');
-    assert(fs.existsSync(path.join(library, '旅行.md')) && fs.existsSync(path.join(data, '旅行.md')), 'files stay on both sides');
-    step('disconnecting keeps the files here and on the server');
+    await page.locator('#settings .set-btn', { hasText: '退出登录' }).click();
+    await page.waitForSelector('#settings .set-btn.primary:has-text("登录")');
+    assert(fs.existsSync(path.join(library, '旅行.md')) && fs.existsSync(lib('旅行.md')), 'files stay on both sides');
+    step('signing out keeps the files here and on the server');
 
     assert.deepStrictEqual(errors, [], 'no page errors');
     console.log('SYNC APP OK  screenshots:', shots);

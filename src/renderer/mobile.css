@@ -200,3 +200,12 @@ body.m-editing.m-kb { --tools-h: 46px; }
 body.m-phone.m-map.m-kb:not(.m-lib) #m-map { bottom: calc(var(--kb) + var(--tools-h)); height: var(--map-h); padding-bottom: 0; }
 body.m-phone.m-map.m-kb:not(.m-lib) #app { padding-bottom: calc(var(--kb) + var(--tools-h) + var(--map-h) + 6px); }
 #m-map { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } /* dragging its edge must not select its label */
+
+/* the account in Settings on a phone: full width */
+body.m-phone .set-row:has(> .sync-usage), body.m-phone .set-row:has(> .sync-devices) { flex-direction: column; align-items: stretch; gap: 8px; }
+body.m-phone .set-row:has(> .sync-usage) > :not(.set-label), body.m-phone .set-row:has(> .sync-devices) > :not(.set-label) { margin-left: 0; }
+body.m-phone .set-row:has(> .sync-usage) .set-label, body.m-phone .set-row:has(> .sync-devices) .set-label { min-width: 0; flex: none; }
+body.m-phone .sync-usage { width: 100%; }
+body.m-phone .sync-device { justify-content: flex-start; font-size: 14px; }
+body.m-phone .sync-device span { text-align: left; }
+body.m-phone .sync-size { height: 40px; font-size: 16px; }

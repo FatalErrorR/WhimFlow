@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('api', {
   syncConnect: inv('sync-connect'),
   syncDisconnect: inv('sync-disconnect'),
   syncNow: inv('sync-now'),
+  syncSetup: inv('sync-setup'),
+  syncAccount: inv('sync-account'),
   reply: (ch, v) => ipcRenderer.send(ch, v),
   copyText: (s) => { ipcRenderer.send('copy-text', String(s)); }, // the clipboard module is not available to a sandboxed preload
   pathForFile: (f) => webUtils.getPathForFile(f),

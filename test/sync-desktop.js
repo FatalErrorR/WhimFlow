@@ -90,11 +90,11 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'whimflow-sync-desktop-'));
     assert.strictEqual(desk.library, path.join(userData, 'Documents'));
     assert(fs.statSync(desk.library).isDirectory(), 'the library folder is made');
     const base = `http://127.0.0.1:${port}`;
-    assert.deepStrictEqual(await desk.connect({ url: base, token: 'x'.repeat(48) }), { ok: false, error: 'auth', message: 'the server did not accept the token' });
+    assert.strictEqual((await desk.connect({ url: base, token: 'x'.repeat(48) })).error, 'auth');
     assert.strictEqual((await desk.connect({ url: 'http://example.com', token: TOKEN })).error, 'url');
     assert.strictEqual((await desk.connect({ url: 'http://127.0.0.1:1', token: TOKEN })).error, 'offline');
     assert.strictEqual(url, '', 'nothing kept after a failed connect');
-    assert.deepStrictEqual(await desk.connect({ url: base + '/', token: TOKEN }), { ok: true, url: base });
+    assert.deepStrictEqual(await desk.connect({ url: base + '/', token: TOKEN }), { ok: true, url: base, account: null });
     assert(!fs.readFileSync(path.join(userData, 'sync-token')).includes(TOKEN), 'the token is not stored in the clear');
     for (let i = 0; i < 50 && desk.status().state !== 'ok'; i++) await new Promise((r) => setTimeout(r, 100));
     assert(fs.existsSync(path.join(desk.library, '购物清单.md')), 'connected: the library fills from the server');
@@ -103,11 +103,47 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'whimflow-sync-desktop-'));
     desk.changed();
     for (let i = 0; i < 60 && !fs.existsSync(path.join(data, '新的.md')); i++) await new Promise((r) => setTimeout(r, 100));
     assert(fs.existsSync(path.join(data, '新的.md')), 'a change goes up a moment later');
+    step('the desktop controller (a server without accounts): checks the server first, keeps the token encrypted, syncs after a change');
+
+    // ---- accounts: this Mac makes the administrator's account; another device signs in by name ----
+    assert.strictEqual((await desk.connect({ url: base, name: 'chris', password: 'secret-pass' })).error, 'setup', 'no accounts on the server yet');
+    assert.strictEqual(url, base, 'a refused sign-in keeps the current connection');
+    let ra = await desk.setup({ name: 'chris', password: 'secret-pass' });
+    assert(ra.ok && ra.account.admin, 'the administrator: ' + JSON.stringify(ra));
+    const userRoot = path.join(data, '.users', fs.readdirSync(path.join(data, '.users'))[0]);
+    assert(fs.existsSync(path.join(userRoot, '新的.md')), 'the library is now the account\'s');
+    fs.writeFileSync(path.join(desk.library, '账号之后.md'), '# 账号之后');
+    desk.changed();
+    for (let i = 0; i < 60 && !fs.existsSync(path.join(userRoot, '账号之后.md')); i++) await new Promise((r2) => setTimeout(r2, 100));
+    assert(fs.existsSync(path.join(userRoot, '账号之后.md')), 'it syncs on, signed in');
+    const userData2 = path.join(work, 'MacD');
+    let url2 = '';
+    const desk2 = createDesktopSync({
+      userData: userData2, safeStorage: fakeKeychain, queue: fileops.keyedQueue(), fetch: globalThis.fetch, trashItem: async () => {},
+      getUrl: () => url2, setUrl: (u) => { url2 = u; }, notify: () => {}, device: 'MacD',
+    });
+    desk2.start();
+    assert.strictEqual((await desk2.connect({ url: base, name: 'chris', password: 'wrong-pass' })).error, 'wrong');
+    assert.strictEqual((await desk2.connect({ url: base, name: 'chris' })).error, 'name', 'a name and a password are needed');
+    ra = await desk2.connect({ url: base, name: 'Chris', password: 'secret-pass' });
+    assert(ra.ok && ra.account.name === 'chris', 'signed in by name');
+    for (let i = 0; i < 50 && !fs.existsSync(path.join(desk2.library, '账号之后.md')); i++) await new Promise((r2) => setTimeout(r2, 100));
+    assert(fs.existsSync(path.join(desk2.library, '账号之后.md')) && fs.existsSync(path.join(desk2.library, '购物清单.md')), 'the account\'s library comes down');
+    assert(!fs.readFileSync(path.join(userData2, 'sync-token')).toString().includes('secret-pass'), 'the password is not kept');
+    let me = await desk.account('me');
+    assert.deepStrictEqual(me.result.devices.map((d) => d.device).sort(), ['MacC', 'MacD'], 'both devices are listed');
+    assert.strictEqual((await desk.account('nope')).error, 'method', 'only the account calls');
+    await desk2.disconnect();
+    me = await desk.account('me');
+    assert.deepStrictEqual(me.result.devices.map((d) => d.device), ['MacC'], 'signing out ends that device\'s sign-in on the server');
+    desk2.stop();
+    step('accounts: the first one made from this Mac keeps the library; another device signs in by name and password; signing out ends it');
+
     await desk.disconnect();
     assert.deepStrictEqual([url, desk.status().state, fs.existsSync(path.join(userData, 'sync-token')), fs.existsSync(path.join(userData, 'sync-state.json'))], ['', 'off', false, false]);
-    assert(fs.existsSync(path.join(desk.library, '新的.md')) && fs.existsSync(path.join(data, '新的.md')), 'disconnecting keeps the files on both sides');
+    assert(fs.existsSync(path.join(desk.library, '新的.md')) && fs.existsSync(path.join(userRoot, '新的.md')), 'disconnecting keeps the files on both sides');
     desk.stop();
-    step('the desktop controller: checks the server first, keeps the token encrypted, syncs after a change, disconnects cleanly');
+    step('signing out: the files stay on both sides');
     console.log('SYNC DESKTOP OK');
   } catch (err) {
     console.error('SYNC DESKTOP FAIL', err);
