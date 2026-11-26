@@ -206,6 +206,8 @@ function createRemote({ url, token, fetch: f = globalThis.fetch }) {
     /** The first account (the administrator), from the shared token. */
     setup: (name, password, device) => json('POST', '/v1/setup', { name, password, device }),
     me: () => json('GET', '/v1/me'),
+    /** What takes the space: { used, quota, files, largest: [{ path, size }], trash, trashDays } */
+    space: () => json('GET', '/v1/space'),
     logout: () => json('POST', '/v1/logout'),
     signOutDevice: (id) => json('DELETE', '/v1/devices?id=' + encodeURIComponent(id)),
     changePassword: (oldPassword, newPassword) => json('POST', '/v1/password', { old: oldPassword, new: newPassword }, { signIn: true }),
@@ -338,9 +340,9 @@ function createSyncController({ local, state, tokens, getUrl, setUrl, notify, de
       run();
       return { ok: true, account: r.account };
     },
-    /** The account: me, signOutDevice, changePassword, users, createUser, updateUser. */
+    /** The account: me, space, signOutDevice, changePassword, users, createUser, updateUser. */
     async account(method, args = []) {
-      const ok = ['me', 'signOutDevice', 'changePassword', 'users', 'createUser', 'updateUser'];
+      const ok = ['me', 'space', 'signOutDevice', 'changePassword', 'users', 'createUser', 'updateUser'];
       if (!ok.includes(method)) return { ok: false, error: 'method' };
       const url = getUrl(), token = url ? await tokens.get() : null;
       if (!url || !token) return { ok: false, error: 'off' };

@@ -174,6 +174,25 @@ export function initSettings(ctx) {
     const pct = acc.quota ? Math.min(100, Math.round(acc.used / acc.quota * 100)) : 0;
     const bar = el('div', 'sync-usage' + (pct >= 90 ? ' full' : '')); const fill = el('i'); fill.style.width = pct + '%'; bar.append(fill);
     syncBox.append(field(t('空间', 'Space'), t(`已用 ${sizeText(acc.used)} / ${sizeText(acc.quota)}`, `${sizeText(acc.used)} of ${sizeText(acc.quota)} used`), bar));
+    // what takes the space: the largest files (a document opens on a click), and the trash
+    const big = el('div', 'sync-devices sync-big');
+    const bigRow = field(t('占用最多', 'Largest files'), t('正在统计…', 'Counting…'), big);
+    syncBox.append(bigRow);
+    api.syncAccount('space').then((r) => {
+      const hint = bigRow.querySelector('.set-hint');
+      if (!r.ok) { hint.textContent = errText(r); return; }
+      const sp = r.result;
+      hint.textContent = t(`共 ${sp.files} 个文件` + (sp.trash ? `；回收站 ${sizeText(sp.trash)}，不占空间，${sp.trashDays} 天后自动清空` : ''),
+        `${sp.files} file(s)` + (sp.trash ? `; ${sizeText(sp.trash)} in the trash, not counted, emptied after ${sp.trashDays} days` : ''));
+      for (const f of sp.largest.slice(0, 8)) {
+        const line = el('div', 'sync-device');
+        const name = el(/\.(md|markdown|mdown|mkd|mdx|txt)$/i.test(f.path) && cfg.library ? 'button' : 'span', 'sync-file', f.path);
+        if (name.tagName === 'BUTTON') name.onclick = () => { close(); api.openPath(cfg.library.replace(/[\\/]+$/, '') + '/' + f.path); };
+        line.append(name, el('em', '', sizeText(f.size)));
+        big.append(line);
+      }
+      if (!sp.largest.length) big.append(el('em', '', t('还没有文件', 'No files yet')));
+    });
     const devices = el('div', 'sync-devices');
     for (const d of acc.devices) {
       const line = el('div', 'sync-device'); line.append(el('span', '', d.device));

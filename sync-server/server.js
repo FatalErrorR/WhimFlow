@@ -8,6 +8,7 @@
 //          administrator: only while there are none, with the old shared token (WHIMFLOW_TOKEN);
 //          the library that token synced becomes this account's
 //   GET    /v1/me                                         -> account: name, admin, quota, used, devices
+//   GET    /v1/space                                      -> what takes the space: the largest files, the trash
 //   POST   /v1/logout                                     -> this device's sign-in ends
 //   DELETE /v1/devices?id=                                -> sign another device of this account out
 //   POST   /v1/password   { old, new }                   -> other devices are signed out
@@ -15,6 +16,7 @@
 //   POST   /v1/users      { name, password, quota }      (admin) a new account
 //   PATCH  /v1/users?name= { quota, password, disabled } (admin) a new password or disabling signs it out
 // A sign-in is a random token the device keeps (in its keychain); only its hash is stored here.
+// A sign-in not used for 90 days (SESSION_DAYS) ends: that device signs in again.
 // Passwords are kept as scrypt hashes. Five wrong passwords lock the name for 15 minutes.
 //
 // Files (the signed-in account's library):
@@ -49,6 +51,8 @@ const HOST = process.env.HOST || '0.0.0.0';
 const MAX_BODY = +process.env.MAX_BODY || 50 * 1024 * 1024;
 const DEFAULT_QUOTA = +process.env.DEFAULT_QUOTA || 1024 ** 3;
 const TRASH_DAYS = process.env.TRASH_DAYS != null ? +process.env.TRASH_DAYS : 30;
+const SESSION_DAYS = process.env.SESSION_DAYS != null ? +process.env.SESSION_DAYS : 90;
+const stale = (s) => Date.now() - s.seen > SESSION_DAYS * 86400e3;
 const USERS = path.join(DATA, '.users');
 const ACCOUNTS = path.join(DATA, '.accounts.json');
 const SESSIONS = path.join(DATA, '.sessions.json');
@@ -106,6 +110,7 @@ async function caller(req) {
   const s = sessions[h];
   const user = s && accounts.users.find((u) => u.id === s.user);
   if (!user || user.disabled) return null;
+  if (s && stale(s)) { delete sessions[h]; saveSessions().catch(() => {}); return null; } // not used for 90 days
   if (Date.now() - s.seen > 60e3) { s.seen = Date.now(); saveSessions().catch(() => {}); }
   return { user, hash: h, root: rootOf(user) };
 }
@@ -214,6 +219,20 @@ async function readJsonBody(req) {
 }
 const unquote = (s) => String(s || '').trim().replace(/^W\//, '').replace(/^"|"$/g, '');
 
+/** What takes an account's space: its 10 largest files; and what its trash holds (it does not count). */
+async function spaceOf(user) {
+  const root = rootOf(user), files = [];
+  let used = 0, trash = 0;
+  await walk(root, async (p, r) => { try { const n = (await fsp.stat(p)).size; used += n; files.push({ path: r, size: n }); } catch (_) { /* gone */ } });
+  async function count(dir) {
+    let ents; try { ents = await fsp.readdir(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const e of ents) { const p = path.join(dir, e.name); if (e.isDirectory()) await count(p); else { try { trash += (await fsp.stat(p)).size; } catch (_) { /* gone */ } } }
+  }
+  await count(path.join(root, '.trash'));
+  files.sort((a, b) => b.size - a.size);
+  return { used, quota: user.quota, files: files.length, largest: files.slice(0, 10), trash, trashDays: TRASH_DAYS };
+}
+
 async function accountOf(user, hash) {
   return {
     name: user.name, admin: !!user.admin, quota: user.quota, used: await usage(rootOf(user)),
@@ -285,10 +304,11 @@ async function handle(req, res) {
   }
 
   // ---- the account ----
-  if (url.pathname === '/v1/me' || url.pathname === '/v1/logout' || url.pathname === '/v1/devices' || url.pathname === '/v1/password' || url.pathname === '/v1/users') {
+  if (url.pathname === '/v1/me' || url.pathname === '/v1/space' || url.pathname === '/v1/logout' || url.pathname === '/v1/devices' || url.pathname === '/v1/password' || url.pathname === '/v1/users') {
     if (who.legacy) return send(409, { error: 'setup' }); // no accounts yet
     const { user, hash } = who;
     if (route === 'GET /v1/me') return send(200, await accountOf(user, hash));
+    if (route === 'GET /v1/space') return send(200, await spaceOf(user));
     if (route === 'POST /v1/logout') { delete sessions[hash]; await saveSessions(); return send(200, { ok: true }); }
     if (route === 'DELETE /v1/devices') {
       const id = url.searchParams.get('id');
@@ -428,5 +448,11 @@ accounts = readJson(ACCOUNTS, { users: [] });
 sessions = readJson(SESSIONS, {});
 if (!accounts.users.length && !TOKEN) console.warn('no accounts and no WHIMFLOW_TOKEN: nobody can sign in or set up the first account');
 emptyAllOldTrash().catch((err) => console.error('trash', err));
-setInterval(() => emptyAllOldTrash().catch((err) => console.error('trash', err)), 6 * 3600e3).unref();
+function endStaleSessions() {
+  let n = 0;
+  for (const [h, s] of Object.entries(sessions)) if (stale(s)) { delete sessions[h]; n++; }
+  if (n) saveSessions().catch(() => {});
+}
+endStaleSessions();
+setInterval(() => { emptyAllOldTrash().catch((err) => console.error('trash', err)); endStaleSessions(); }, 6 * 3600e3).unref();
 server.listen(PORT, HOST, () => console.log(`whimflow-sync ${VERSION} on ${HOST}:${server.address().port}, data in ${DATA}, ${accounts.users.length} account(s)`));

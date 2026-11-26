@@ -78,6 +78,12 @@ const stop = (s) => new Promise((r) => { s.proc.once('exit', r); s.proc.kill(); 
     assert.deepStrictEqual(list.map((u) => [u.name, u.admin, u.used]), [['Chris', true, Buffer.byteLength('# 旧的')], ['ann', false, 20]], 'the list shows each account and its space');
     step('the administrator makes accounts; each has its own library and space, refused past it; the trash does not count');
 
+    // what takes the space: the largest files first, and the trash (which does not count)
+    assert.strictEqual((await put(ann, '图/大图.png', 'p'.repeat(300))).status, 200);
+    const sp = (await call('GET', '/v1/space', { token: ann })).json;
+    assert.deepStrictEqual([sp.used, sp.files, sp.largest.map((f) => [f.path, f.size]), sp.trash, sp.trashDays], [320, 2, [['图/大图.png', 300], ['b.md', 20]], 45, 30], 'the space: ' + JSON.stringify(sp));
+    step('the space: the largest files first, and what the trash holds');
+
     // five wrong passwords lock that name for a while, even for the right password; other names are not affected
     assert.strictEqual((await call('POST', '/v1/users', { token: chris, json: { name: 'bob', password: 'bob-password' } })).status, 200);
     for (let i = 0; i < 5; i++) assert.strictEqual((await call('POST', '/v1/login', { json: { name: 'Bob', password: 'nope-nope' } })).status, 401);
@@ -107,6 +113,8 @@ const stop = (s) => new Promise((r) => { s.proc.once('exit', r); s.proc.kill(); 
     assert.strictEqual((await call('GET', '/v1/me', { token: chris })).status, 401, 'signed out');
     step('devices sign out one by one; a new password, or disabling, signs out the rest');
 
+    // ---- a sign-in not used for 90 days ends ----
+    const idle = (await call('POST', '/v1/login', { json: { name: 'ann', password: 'reset-by-admin', device: 'old iPad' } })).json.token;
     // ---- across a restart; old trash is erased ----
     const c2 = (await call('POST', '/v1/login', { json: { name: 'chris', password: 'new-secret' } })).json.token;
     assert(c2, 'signs in with the new password');
@@ -116,11 +124,16 @@ const stop = (s) => new Promise((r) => { s.proc.once('exit', r); s.proc.kill(); 
     fs.mkdirSync(oldTrash, { recursive: true });
     fs.writeFileSync(path.join(oldTrash, 'x.md'), 'x');
     const past = new Date('2020-01-02'); fs.utimesSync(oldTrash, past, past);
+    const sess = JSON.parse(fs.readFileSync(path.join(data, '.sessions.json'), 'utf8'));
+    sess[sha(idle)].seen = Date.now() - 91 * 86400e3; // the old iPad was last used 91 days ago
+    fs.writeFileSync(path.join(data, '.sessions.json'), JSON.stringify(sess));
     srv = await start(data);
     assert.strictEqual((await call('GET', '/v1/manifest', { token: c2 })).status, 200, 'sign-ins survive a restart');
+    assert.strictEqual((await call('GET', '/v1/manifest', { token: idle })).status, 401, 'one not used for 90 days has ended');
+    assert(!(sha(idle) in JSON.parse(fs.readFileSync(path.join(data, '.sessions.json'), 'utf8'))), 'and is gone from the server');
     await new Promise((r) => setTimeout(r, 300));
     assert(!fs.existsSync(oldTrash), 'what was in the trash for 30 days is erased');
-    step('sign-ins survive a restart; the trash is emptied after 30 days');
+    step('sign-ins survive a restart, those not used for 90 days end; the trash is emptied after 30 days');
     console.log('SYNC ACCOUNTS OK');
   } catch (err) {
     console.error('SYNC ACCOUNTS FAIL', err);

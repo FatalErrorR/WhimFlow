@@ -207,5 +207,5 @@ body.m-phone .set-row:has(> .sync-usage) > :not(.set-label), body.m-phone .set-r
 body.m-phone .set-row:has(> .sync-usage) .set-label, body.m-phone .set-row:has(> .sync-devices) .set-label { min-width: 0; flex: none; }
 body.m-phone .sync-usage { width: 100%; }
 body.m-phone .sync-device { justify-content: flex-start; font-size: 14px; }
-body.m-phone .sync-device span { text-align: left; }
+body.m-phone .sync-device span, body.m-phone .sync-file { text-align: left; font-size: 14px; }
 body.m-phone .sync-size { height: 40px; font-size: 16px; }

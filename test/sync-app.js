@@ -113,6 +113,17 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
     await page.screenshot({ path: path.join(shots, 'sync-tree.png') });
     step('a file from another device comes down and shows in the tree');
 
+    // Settings: what takes the space, the largest first; a document opens on a click
+    await page.evaluate(() => window.__whimflow.run('settings'));
+    await until(async () => (await page.locator('#settings .sync-big .sync-file').count()) >= 2, 'the largest files are listed');
+    const big = await page.locator('#settings .sync-big .sync-device').allInnerTexts();
+    assert(/assets\/海\.png/.test(big[0]), 'the image, the largest, first: ' + JSON.stringify(big));
+    assert(/共 \d+ 个文件/.test(await page.locator('#settings .set-row', { has: page.locator('.sync-big') }).innerText()), 'with how many files');
+    await page.locator('#settings .sync-big button.sync-file', { hasText: '旅行.md' }).click();
+    await page.waitForFunction(() => /旅行\.md$/.test(window.__whimflow.state.filePath || ''));
+    assert(await page.evaluate(() => document.querySelector('#settings').hidden), 'Settings closes, the document opens');
+    step('Settings shows what takes the space; a document opens from there');
+
     // ---- the library stays: opening a file or a folder from elsewhere shows it below, never instead ----
     const other = path.join(work, 'Downloads');
     fs.mkdirSync(other);
