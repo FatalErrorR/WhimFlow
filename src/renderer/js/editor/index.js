@@ -15,7 +15,7 @@ import { live } from './widgets.js';
 import { fenceCompletion, codeKeymap, keepHighlights } from './code.js';
 import { tableKeymap } from './table.js';
 import { findField, findApi } from './find.js';
-import { islandLayer, selectionClip } from './island.js';
+import { islandLayer, selectionClip, codeBgLayer } from './island.js';
 import { runCommand } from './commands.js';
 import { headingsOf, topBlockAt, fenceAt, fenceInfo } from './structure.js';
 
@@ -69,6 +69,9 @@ export function createEditor(parent, opts) {
     focusPlugin,
     keepHighlights,
     findField,
+    // CodeMirror stacks the layers by the order they are registered here, each one below the one
+    // before it: the selection (drawSelection, above), then the code panels, then the card
+    codeBgLayer,
     islandLayer,
     selectionClip,
     EditorState.transactionExtender.of((tr) => (typewriter && (tr.selection || tr.docChanged) && !tr.isUserEvent('select.pointer')

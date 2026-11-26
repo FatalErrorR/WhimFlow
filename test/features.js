@@ -245,10 +245,18 @@ Closing words.
       const m = await measure();
       assert(m.clipped && m.seen[0] >= m.card[0] - 1 && m.seen[1] <= m.card[1] + 1, `${mode}: the selection stays inside the card: ` + JSON.stringify(m));
     }
-    await run('source');
+    await run('source'); // back to live preview
+    await page.waitForTimeout(300);
+    // and shows over the code: a code block's background is a panel under the selection, not on its lines
+    const stack = await page.evaluate(() => {
+      const z = (cls) => +getComputedStyle(document.querySelector('.cm-scroller > .' + cls)).zIndex;
+      const line = document.querySelector('.cm-line.cm-cb'), panel = document.querySelector('.cm-cb-bg');
+      return { lineBg: getComputedStyle(line).backgroundColor, panel: !!panel, order: z('cm-selectionLayer') > z('cm-cb-bg-layer') && z('cm-cb-bg-layer') > z('cm-island-layer') };
+    });
+    assert.deepStrictEqual(stack, { lineBg: 'rgba(0, 0, 0, 0)', panel: true, order: true }, 'card < code panel < selection, code lines see-through: ' + JSON.stringify(stack));
     await page.evaluate((t) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } }); }, original);
   }
-  step('a selection stays inside the card, in live preview and source mode');
+  step('a selection stays inside the card and shows over code, in live preview and source mode');
 
   // ---- history (open snapshot + saves) ----
   await page.keyboard.press(`${mod}+s`);
