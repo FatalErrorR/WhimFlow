@@ -11,6 +11,8 @@
 #editor .cm-line { padding: 0; }
 #editor .cm-cursor, #editor .cm-dropCursor { border-left: 2px solid var(--accent); }
 #editor .cm-selectionBackground, #editor .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground { background: var(--sel); }
+/* whole selected lines reach the editor's edge: keep them within the text column and the card's margin (island.js) */
+#editor .cm-selectionLayer { clip-path: polygon(var(--sel-l, -100000px) -100000px, var(--sel-r, 100000px) -100000px, var(--sel-r, 100000px) 100000000px, var(--sel-l, -100000px) 100000000px); }
 #editor .cm-content ::selection { background: transparent; }
 #editor .cm-matchingBracket { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: none; }
 

@@ -15,7 +15,7 @@ import { live } from './widgets.js';
 import { fenceCompletion, codeKeymap, keepHighlights } from './code.js';
 import { tableKeymap } from './table.js';
 import { findField, findApi } from './find.js';
-import { islandLayer } from './island.js';
+import { islandLayer, selectionClip } from './island.js';
 import { runCommand } from './commands.js';
 import { headingsOf, topBlockAt, fenceAt, fenceInfo } from './structure.js';
 
@@ -70,6 +70,7 @@ export function createEditor(parent, opts) {
     keepHighlights,
     findField,
     islandLayer,
+    selectionClip,
     EditorState.transactionExtender.of((tr) => (typewriter && (tr.selection || tr.docChanged) && !tr.isUserEvent('select.pointer')
       ? { effects: EditorView.scrollIntoView((tr.selection || tr.startState.selection).main.head, { y: 'center' }) } : null)),
     EditorView.updateListener.of((u) => {

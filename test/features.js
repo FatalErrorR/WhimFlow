@@ -225,6 +225,31 @@ Closing words.
   }
   step('⌘1…⌘6 put the caret after the heading marks');
 
+  // a selection of whole lines stays inside the raised card, in live preview and in source mode
+  {
+    const original = await val();
+    await page.evaluate(() => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: '```python\nclass M:\n    def forward(self, x):\n        x = torch.relu(self.linear1(x))   # 加權求和\n        return x\n```\n' } }); });
+    const measure = () => page.evaluate(() => {
+      const v = window.__whimflow.editor.view, t = v.state.doc.toString();
+      v.focus(); v.dispatch({ selection: { anchor: t.indexOf('    def forward'), head: t.indexOf('return x') } });
+      return new Promise((res) => setTimeout(() => {
+        const card = document.querySelector('.cm-island').getBoundingClientRect(), layer = document.querySelector('.cm-selectionLayer');
+        const cs = getComputedStyle(document.querySelector('.cm-editor')), sc = document.querySelector('.cm-scroller').getBoundingClientRect();
+        const l = sc.left + parseFloat(cs.getPropertyValue('--sel-l')), r = sc.left + parseFloat(cs.getPropertyValue('--sel-r'));
+        const rects = [...layer.querySelectorAll('.cm-selectionBackground')].map((x) => x.getBoundingClientRect()).filter((x) => x.width > 0);
+        res({ clipped: getComputedStyle(layer).clipPath !== 'none', seen: [Math.min(...rects.map((x) => Math.max(x.left, l))), Math.max(...rects.map((x) => Math.min(x.right, r)))], card: [card.left, card.right] });
+      }, 400));
+    });
+    for (const mode of ['live', 'source']) {
+      if (mode === 'source') await run('source');
+      const m = await measure();
+      assert(m.clipped && m.seen[0] >= m.card[0] - 1 && m.seen[1] <= m.card[1] + 1, `${mode}: the selection stays inside the card: ` + JSON.stringify(m));
+    }
+    await run('source');
+    await page.evaluate((t) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } }); }, original);
+  }
+  step('a selection stays inside the card, in live preview and source mode');
+
   // ---- history (open snapshot + saves) ----
   await page.keyboard.press(`${mod}+s`);
   await page.waitForFunction(() => !window.__whimflow.state.dirty);
