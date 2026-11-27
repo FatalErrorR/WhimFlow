@@ -16,6 +16,7 @@ import { fenceCompletion, codeKeymap, keepHighlights } from './code.js';
 import { tableKeymap } from './table.js';
 import { findField, findApi } from './find.js';
 import { islandLayer, selectionClip, codeBgLayer } from './island.js';
+import { renumberLists } from './lists.js';
 import { runCommand } from './commands.js';
 import { headingsOf, topBlockAt, fenceAt, fenceInfo } from './structure.js';
 
@@ -74,6 +75,7 @@ export function createEditor(parent, opts) {
     codeBgLayer,
     islandLayer,
     selectionClip,
+    renumberLists,
     EditorState.transactionExtender.of((tr) => (typewriter && (tr.selection || tr.docChanged) && !tr.isUserEvent('select.pointer')
       ? { effects: EditorView.scrollIntoView((tr.selection || tr.startState.selection).main.head, { y: 'center' }) } : null)),
     EditorView.updateListener.of((u) => {

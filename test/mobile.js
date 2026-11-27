@@ -552,6 +552,26 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
   assert(bar.shown && bar.gap >= 8, 'the caret bar is set apart from the text: ' + JSON.stringify(bar));
   step('iPad: sidebar, editor and final view side by side');
 
+  // numbered lists stay in order: Tab makes a sub-list from 1, deleting renumbers, one undo takes both back
+  {
+    const set = (t, at) => W(([t, at]) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t }, selection: { anchor: at } }); v.focus(); }, [t, at]);
+    const val = () => W(() => window.__whimflow.editor.getValue());
+    await set('1. aaa\n2. bbb\n3. ccc', 6);
+    await page.keyboard.press('Enter'); await page.keyboard.press('Tab'); await page.keyboard.type('你好');
+    assert.strictEqual(await val(), '1. aaa\n    1. 你好\n2. bbb\n3. ccc', 'indented: a sub-list from 1, the rest renumbered');
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Backspace');
+    assert.strictEqual(await val(), '1. aaa\n   \n2. bbb\n3. ccc', 'its text and number deleted: still 1, 2, 3');
+    await set('1. a\n2. b\n3. c', 4);
+    await page.keyboard.press('Enter'); await page.keyboard.press('Tab');
+    assert.strictEqual(await val(), '1. a\n    1. \n2. b\n3. c');
+    await page.keyboard.press('Meta+z');
+    assert.strictEqual(await val(), '1. a\n2. \n3. b\n4. c', 'one undo takes the indent and the renumbering back');
+    await set('5. e\n6. f\n\n```\n1. a\n1. b\n```', 4);
+    await page.keyboard.press('Enter'); await page.keyboard.type('x');
+    assert.strictEqual(await val(), '5. e\n6. x\n7. f\n\n```\n1. a\n1. b\n```', 'a list keeps its first number; code is left alone');
+  }
+  step('numbered lists stay in order after Tab, deleting and undo');
+
   assert.deepStrictEqual(errors, [], 'no page errors');
   await browser.close();
   server.close();
