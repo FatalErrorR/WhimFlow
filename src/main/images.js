@@ -4,7 +4,7 @@
 //   imageRelative: write a path relative to the document when possible
 const fs = require('fs');
 const path = require('path');
-const { pathToFileURL } = require('url');
+const { pathToFileURL, fileURLToPath } = require('url');
 
 const IMG = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'avif'];
 
@@ -66,4 +66,29 @@ async function saveImage(settings, docPath, userData, name, data) {
   throw new Error('No free file name for the image in ' + dir);
 }
 
-module.exports = { saveImage, linkFor, targetDir, toUrl, relLink, IMG };
+/**
+ * Images a document shows from the app's folder for documents not saved yet (userData/images):
+ * now that the document has a place, they are copied into its image folder (./assets by
+ * default), so they travel and sync with it. Returns the links to change: [{ from, to }].
+ * The copies in userData/images stay (another unsaved document may show them too).
+ */
+async function adoptImages(settings, docPath, userData, content, P = path) {
+  const dir = P.join(userData, 'images');
+  const prefix = toUrl(dir, P) + '/';
+  const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const out = [], seen = new Set();
+  for (const m of String(content).matchAll(new RegExp(esc + '[^)\\s"\'<>]+', 'g'))) {
+    const link = m[0];
+    if (seen.has(link)) continue;
+    seen.add(link);
+    let file;
+    try { file = fileURLToPath(link); } catch (_) { continue; }
+    if (P.dirname(file) !== dir) continue;
+    let bytes;
+    try { bytes = await fs.promises.readFile(file); } catch (_) { continue; } // gone: the link stays as it is
+    out.push({ from: link, to: await saveImage(settings, docPath, userData, P.basename(file), bytes) });
+  }
+  return out;
+}
+
+module.exports = { saveImage, adoptImages, linkFor, targetDir, toUrl, relLink, IMG };

@@ -259,12 +259,31 @@ const api = window.api;
     next.finally(() => { if (doc.saving === next) doc.saving = null; });
     return next;
   }
+  /**
+   * Images pasted while the document had no file live in the app's own folder (file:// links):
+   * once it is saved they are copied in beside it and the links become relative, so they move and
+   * sync with the document. The changed text is saved again (after this save).
+   */
+  async function adoptImages(doc, p, sent) {
+    if (!api.adoptImages || !/file:\/\/[^)\s]*\/images\//.test(sent)) return;
+    const moves = await api.adoptImages({ docPath: p, content: sent });
+    if (!moves || !moves.length || !isOpen(doc) || doc.filePath !== p) return;
+    const text = doc === ctx.docs.active() ? editor.getValue() : doc.state.doc.toString();
+    const changes = [];
+    for (const { from, to } of moves) for (let i = text.indexOf(from); i >= 0; i = text.indexOf(from, i + from.length)) changes.push({ from: i, to: i + from.length, insert: to });
+    if (!changes.length) return;
+    changes.sort((a, b) => a.from - b.from);
+    if (doc === ctx.docs.active()) editor.view.dispatch({ changes, userEvent: 'input.image' });
+    else { doc.state = doc.state.update({ changes }).state; doc.rev = (doc.rev || 0) + 1; doc.dirty = true; }
+    save(false, doc);
+  }
   async function saveNow(saveAs, doc, opts = {}) {
     if (!isOpen(doc)) return false;
     const rev = doc.rev || 0;
     const had = doc.filePath;
     const expectedVersion = opts.overwrite !== undefined ? opts.overwrite : (doc.diskVersion || null);
-    const res = await api.save({ content: ctx.docs.fileText(doc), saveAs, filePath: had, docId: doc.id, rev, suggest: doc.suggest || null, expectedVersion });
+    const sent = ctx.docs.fileText(doc);
+    const res = await api.save({ content: sent, saveAs, filePath: had, docId: doc.id, rev, suggest: doc.suggest || null, expectedVersion });
     if (!res) return false;
     if (res.conflict) { if (isOpen(doc)) onConflict(doc, res); return false; }
     const p = res.filePath;
@@ -291,6 +310,7 @@ const api = window.api;
     if (isActive) { state.filePath = p; state.dirty = doc.dirty; updateTitle(); }
     ctx.docs.sync();
     if (isActive && ctx.right.isOpen() && ctx.right.tab() === 'history') ctx.history.render();
+    adoptImages(doc, p, sent).catch((err) => console.error("adopt images", err));
     if (p !== had) {
       if (isActive) { editor.setBase(baseUrl()); updateWelcome(); }
       if (!state.folder && !ctx.sidebar.inLibrary(p)) ctx.sidebar.setFolder(dirname(p)); else ctx.sidebar.refreshTree();

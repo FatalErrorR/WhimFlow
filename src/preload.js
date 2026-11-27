@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('api', {
   createFile: inv('create-file'),
   rename: inv('rename'),
   saveImage: inv('save-image'),
+  adoptImages: inv('adopt-images'),
   imageFile: inv('image-file'),
   revealUrl: inv('reveal-url'),
   draft: inv('draft'),

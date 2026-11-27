@@ -477,6 +477,7 @@ export function createMobileApi(hooks = {}) {
     search,
     saveImage,
     async imageFile() { return null; },
+    async adoptImages() { return []; }, // pasted images already live in the library on a phone
     async pickImage(req = {}) {
       const file = await new Promise((resolve) => {
         const inp = document.createElement('input');

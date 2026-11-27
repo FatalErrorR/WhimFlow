@@ -528,6 +528,12 @@ const docPathFor = (st, req) => {
   if (!req || !Object.prototype.hasOwnProperty.call(req, 'docPath')) return st.filePath;
   return req.docPath && hasDoc(st, req.docPath) ? req.docPath : null;
 };
+// a document just saved: the images it shows from the unsaved-documents folder move in beside it
+handle('adopt-images', async (_e, { docPath, content }) => {
+  if (typeof docPath !== 'string' || !path.isAbsolute(docPath)) return [];
+  try { return await images.adoptImages(settings, docPath, app.getPath('userData'), String(content || '')); }
+  catch (err) { console.error('adopt images', err); return []; }
+});
 handle('save-image', async (e, req) => {
   const st = W(e);
   return images.saveImage(settings, docPathFor(st, req), app.getPath('userData'), req.name, req.data);

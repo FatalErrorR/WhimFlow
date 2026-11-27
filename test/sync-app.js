@@ -124,6 +124,22 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
     assert(await page.evaluate(() => document.querySelector('#settings').hidden), 'Settings closes, the document opens');
     step('Settings shows what takes the space; a document opens from there');
 
+    // a screenshot pasted into a document that has no file yet goes beside it on the first save, and syncs
+    await page.evaluate(() => window.__whimflow.run('new-doc'));
+    await page.waitForFunction(() => !window.__whimflow.state.filePath);
+    const shot = await page.evaluate(async () => window.api.saveImage({ name: '截圖 測試.png', data: new Uint8Array([137, 80, 78, 71, 1, 2, 3]).buffer, docPath: null }));
+    assert(/^file:\/\/.*\/images\//.test(shot), 'unsaved: it waits in the app\'s folder: ' + shot);
+    await page.evaluate((l) => { const v = window.__whimflow.editor.view; v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: `# 有截图\n\n![截圖](${l})\n` } }); }, shot);
+    await app.evaluate((_e, p) => { globalThis.__whimflowTest.answer.saveDialog = p; }, path.join(library, '有截图.md'));
+    await page.evaluate(() => window.__whimflow.run('save'));
+    await until(async () => /!\[截圖\]\(assets\/%E6%88%AA%E5%9C%96-%E6%B8%AC%E8%A9%A6\.png\)/.test(await page.evaluate(() => window.__whimflow.editor.getValue())), 'the link becomes relative');
+    await until(async () => !(await page.evaluate(() => window.__whimflow.state.dirty)), 'and is saved');
+    assert(/assets\/%E6%88%AA/.test(fs.readFileSync(path.join(library, '有截图.md'), 'utf8')), 'on disk too');
+    assert(fs.existsSync(path.join(library, 'assets', '截圖-測試.png')), 'the image is in the library');
+    await until(() => fs.existsSync(lib('assets/截圖-測試.png')) && /assets\/%E6%88%AA/.test(String(fs.existsSync(lib('有截图.md')) && fs.readFileSync(lib('有截图.md'), 'utf8'))), 'both reach the server', 15000);
+    await app.evaluate(() => { globalThis.__whimflowTest.answer.saveDialog = undefined; });
+    step('a screenshot pasted before the first save moves beside the document, the link turns relative, and both sync');
+
     // ---- the library stays: opening a file or a folder from elsewhere shows it below, never instead ----
     const other = path.join(work, 'Downloads');
     fs.mkdirSync(other);

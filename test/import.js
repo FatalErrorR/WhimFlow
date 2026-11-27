@@ -2,6 +2,8 @@
 const path = require('path'), fs = require('fs'), os = require('os');
 const assert = require('assert');
 const { importInto, imageLinks } = require('../src/main/importer.js');
+const { adoptImages } = require('../src/main/images.js');
+const { pathToFileURL } = require('url');
 
 const step = (name) => console.log('  ✓', name);
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'whimflow-import-'));
@@ -43,6 +45,18 @@ const has = (rel) => fs.existsSync(path.join(work, rel));
     res = await importInto(path.join(lib, '笔记', 'sub'), [path.join(lib, '笔记')]);
     assert.deepStrictEqual([res.added, res.skipped], [[], ['笔记']], 'a folder is not copied into itself');
     step('folders bring their documents and images; other files are left out');
+    // images pasted before a document had a file are moved in beside it once it has one
+    const ud = path.join(work, 'App Support');
+    w('App Support/images/截圖 1.png', 'shot-1'); w('App Support/images/b.png', 'shot-2');
+    const u1 = pathToFileURL(path.join(ud, 'images', '截圖 1.png')).href, u2 = pathToFileURL(path.join(ud, 'images', 'b.png')).href;
+    const gone = pathToFileURL(path.join(ud, 'images', 'gone.png')).href, other = pathToFileURL(path.join(work, 'elsewhere.png')).href;
+    const text = `![a](${u1})\n<img src="${u2}" width="50%">\n![a again](${u1})\n![gone](${gone})\n![other](${other})`;
+    const moves = await adoptImages({ imageFolder: './assets', imageRelative: true }, path.join(work, 'lib', '笔记', '文.md'), ud, text);
+    assert.deepStrictEqual(moves.map((m) => m.to), ['assets/%E6%88%AA%E5%9C%96-1.png', 'assets/b.png'], 'each image once, linked beside the document');
+    assert.deepStrictEqual(moves.map((m) => m.from), [u1, u2]);
+    assert.strictEqual(r('lib/笔记/assets/截圖-1.png'), 'shot-1', 'copied into its image folder');
+    assert(has('App Support/images/截圖 1.png'), 'the copy for unsaved documents stays');
+    step('images pasted before the first save are copied beside the document; missing ones and others are left alone');
     console.log('IMPORT OK');
   } catch (err) {
     console.error('IMPORT FAIL', err);
