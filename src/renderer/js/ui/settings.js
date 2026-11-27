@@ -193,6 +193,32 @@ export function initSettings(ctx) {
       }
       if (!sp.largest.length) big.append(el('em', '', t('还没有文件', 'No files yet')));
     });
+    // recently deleted (on any device): back where it was, then it syncs to every device
+    const gone = el('div', 'sync-devices sync-gone');
+    const goneRow = field(t('最近删除', 'Recently deleted'), t('正在读取…', 'Loading…'), gone);
+    syncBox.append(goneRow);
+    const when = (ms) => new Date(ms).toLocaleString(t('zh-CN', 'en-US'), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    api.syncAccount('trash').then((r) => {
+      const hint = goneRow.querySelector('.set-hint');
+      if (!r.ok) { hint.textContent = errText(r); return; }
+      const { items, days } = r.result;
+      hint.textContent = t(`任何设备上删除的文件都在这里保留 ${days} 天，恢复后会同步回所有设备`, `Files deleted on any device stay here for ${days} days; a restored one syncs back everywhere`);
+      if (!items.length) { gone.append(el('em', '', t('没有删除的文件', 'Nothing deleted'))); return; }
+      for (const it of items.slice(0, 20)) {
+        const line = el('div', 'sync-device');
+        line.append(el('span', 'sync-file', it.path), el('em', '', when(it.deleted)));
+        const back = button(t('恢复', 'Restore'), async () => {
+          back.disabled = true;
+          const x = await api.syncAccount('restore', [it.id]);
+          if (!x.ok) { back.disabled = false; window.alert(x.error === 'quota' ? t('空间不够，恢复不了', 'Not enough space to restore it') : errText(x)); return; }
+          line.replaceChildren(el('span', 'sync-file', x.result.path), el('em', '', t('已恢复', 'Restored')));
+          api.syncNow();
+        });
+        line.append(back);
+        gone.append(line);
+      }
+      if (items.length > 20) gone.append(el('em', '', t(`还有 ${items.length - 20} 个更早的`, `${items.length - 20} more, older`)));
+    });
     const devices = el('div', 'sync-devices');
     for (const d of acc.devices) {
       const line = el('div', 'sync-device'); line.append(el('span', '', d.device));

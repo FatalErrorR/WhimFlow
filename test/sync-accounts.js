@@ -84,6 +84,22 @@ const stop = (s) => new Promise((r) => { s.proc.once('exit', r); s.proc.kill(); 
     assert.deepStrictEqual([sp.used, sp.files, sp.largest.map((f) => [f.path, f.size]), sp.trash, sp.trashDays], [320, 2, [['图/大图.png', 300], ['b.md', 20]], 45, 30], 'the space: ' + JSON.stringify(sp));
     step('the space: the largest files first, and what the trash holds');
 
+    // recently deleted: listed newest first, and put back where it was
+    assert.strictEqual((await call('DELETE', '/v1/file?path=' + encodeURIComponent('图/大图.png'), { token: ann, headers: { 'If-Match': sha('p'.repeat(300)) } })).status, 200);
+    let tr = (await call('GET', '/v1/trash', { token: ann })).json;
+    assert.deepStrictEqual([tr.days, tr.items.map((i) => i.path)], [30, ['图/大图.png', 'a.md']], 'deleted files, newest first: ' + JSON.stringify(tr));
+    let res = await call('POST', '/v1/trash/restore?id=' + encodeURIComponent(tr.items[0].id), { token: ann });
+    assert.deepStrictEqual(res.json, { ok: true, path: '图/大图.png' }, 'back where it was');
+    assert.strictEqual((await call('GET', '/v1/manifest', { token: ann })).json.files['图/大图.png'].v, sha('p'.repeat(300)));
+    assert.strictEqual((await put(ann, 'a.md', 'a new a')).status, 200, 'a new a.md meanwhile');
+    res = await call('POST', '/v1/trash/restore?id=' + encodeURIComponent(tr.items[1].id), { token: ann });
+    assert.deepStrictEqual(res.json, { ok: true, path: 'a (恢复).md' }, 'a name taken meanwhile: restored beside it');
+    tr = (await call('GET', '/v1/trash', { token: ann })).json;
+    assert.deepStrictEqual(tr.items, [], 'the trash is empty again');
+    assert.strictEqual((await call('POST', '/v1/trash/restore?id=' + encodeURIComponent('20260101T000000-abcdef/../../x'), { token: ann })).status, 400, 'nothing outside the trash');
+    assert.strictEqual((await call('POST', '/v1/trash/restore?id=' + encodeURIComponent(tr.items.length ? 'x' : '20260101T000000-abcdef/a.md'), { token: chris })).status, 404, 'only from one\'s own trash');
+    step('recently deleted: listed newest first; restored where it was, beside it when the name is taken');
+
     // five wrong passwords lock that name for a while, even for the right password; other names are not affected
     assert.strictEqual((await call('POST', '/v1/users', { token: chris, json: { name: 'bob', password: 'bob-password' } })).status, 200);
     for (let i = 0; i < 5; i++) assert.strictEqual((await call('POST', '/v1/login', { json: { name: 'Bob', password: 'nope-nope' } })).status, 401);

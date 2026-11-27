@@ -140,6 +140,25 @@ const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
     await app.evaluate(() => { globalThis.__whimflowTest.answer.saveDialog = undefined; });
     step('a screenshot pasted before the first save moves beside the document, the link turns relative, and both sync');
 
+    // deleted here, it is in "最近删除" (the server's trash); restored, it comes back
+    await app.evaluate(() => {
+      const t = globalThis.__whimflowTest;
+      t.answer.trash = 0; // "Move to Trash"
+      t.trashItem = async (p) => process.mainModule.require('fs').rmSync(p, { force: true }); // not the real Trash
+    });
+    assert((await page.evaluate((p) => window.api.trash(p), path.join(library, '有截图.md'))).ok);
+    await until(() => !fs.existsSync(lib('有截图.md')), 'the delete reaches the server', 15000);
+    await page.evaluate(() => window.__whimflow.run('settings'));
+    const goneItem = page.locator('#settings .sync-gone .sync-device', { hasText: '有截图.md' });
+    await until(async () => (await goneItem.count()) === 1, 'it is listed under 最近删除');
+    await goneItem.locator('.set-btn', { hasText: '恢复' }).click();
+    await until(async () => /已恢复/.test(await goneItem.innerText()), 'restored');
+    await until(() => fs.existsSync(path.join(library, '有截图.md')), 'and back in the library here', 15000);
+    assert(/assets\/%E6%88%AA/.test(fs.readFileSync(path.join(library, '有截图.md'), 'utf8')), 'as it was');
+    await page.locator('#settings .set-close').click();
+    await app.evaluate(() => { const t = globalThis.__whimflowTest; t.answer.trash = undefined; t.trashItem = null; });
+    step('a document deleted here is listed under 最近删除; restored, it comes back');
+
     // ---- the library stays: opening a file or a folder from elsewhere shows it below, never instead ----
     const other = path.join(work, 'Downloads');
     fs.mkdirSync(other);

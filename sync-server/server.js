@@ -9,6 +9,8 @@
 //          the library that token synced becomes this account's
 //   GET    /v1/me                                         -> account: name, admin, quota, used, devices
 //   GET    /v1/space                                      -> what takes the space: the largest files, the trash
+//   GET    /v1/trash                                      -> what was deleted in the last 30 days, newest first
+//   POST   /v1/trash/restore?id=                          -> put it back where it was (a taken name gets "(恢复)")
 //   POST   /v1/logout                                     -> this device's sign-in ends
 //   DELETE /v1/devices?id=                                -> sign another device of this account out
 //   POST   /v1/password   { old, new }                   -> other devices are signed out
@@ -188,6 +190,45 @@ async function toTrash(root, file, rel) {
   await fsp.rename(file, dest);
   cache.delete(file);
 }
+/** What a library's trash holds: [{ id, path, size, deleted }], newest first. id = "<when>-<rand>/<path>". */
+const TRASH_ENTRY = /^(\d{8}T\d{6})-[0-9a-f]{6}$/;
+async function trashList(root) {
+  const trash = path.join(root, '.trash'), items = [];
+  let ents;
+  try { ents = await fsp.readdir(trash, { withFileTypes: true }); } catch (_) { return items; }
+  for (const e of ents) {
+    const m = TRASH_ENTRY.exec(e.name);
+    if (!m || !e.isDirectory()) continue;
+    const s = m[1];
+    let deleted = Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(9, 11), +s.slice(11, 13), +s.slice(13, 15));
+    try { deleted = Math.max(deleted, (await fsp.stat(path.join(trash, e.name))).birthtimeMs || 0); } catch (_) { /* the name's second will do */ }
+    await walk(path.join(trash, e.name), async (p, r) => { try { items.push({ id: e.name + '/' + r, path: r, size: (await fsp.stat(p)).size, deleted }); } catch (_) { /* gone */ } });
+  }
+  return items.sort((a, b) => b.deleted - a.deleted || (a.path < b.path ? -1 : 1));
+}
+/** Put a file from the trash back where it was; a name taken meanwhile gets " (恢复)". */
+async function restoreFromTrash(root, id, user) {
+  const slash = String(id || '').indexOf('/');
+  const entry = slash > 0 ? id.slice(0, slash) : '', rel = clean(slash > 0 ? id.slice(slash + 1) : '');
+  if (!TRASH_ENTRY.test(entry) || !rel) throw fail(400, 'bad id');
+  const from = path.join(root, '.trash', entry, ...rel.split('/'));
+  let st;
+  try { st = await fsp.stat(from); } catch (_) { throw fail(404, 'not in the trash'); }
+  if (user && (await usage(root)) + st.size > user.quota) throw fail(507, 'quota', { used: await usage(root), quota: user.quota });
+  const dot = rel.lastIndexOf('.') > rel.lastIndexOf('/') ? rel.lastIndexOf('.') : rel.length;
+  let to = rel;
+  for (let i = 1; (await versionOf(abs(root, to))) !== null; i++) to = rel.slice(0, dot) + (i === 1 ? ' (恢复)' : ` (恢复 ${i})`) + rel.slice(dot);
+  const dest = abs(root, to);
+  await fsp.mkdir(path.dirname(dest), { recursive: true });
+  await fsp.rename(from, dest);
+  // the folders it leaves empty in the trash go, up to and including its entry
+  for (let d = path.dirname(from), stop = path.join(root, '.trash'); d.startsWith(stop + path.sep); d = path.dirname(d)) {
+    try { await fsp.rmdir(d); } catch (_) { break; } // not empty: something else was deleted with it
+  }
+  console.log(new Date().toISOString(), 'restore', user ? user.name : '-', to);
+  return { ok: true, path: to };
+}
+
 /** Erase what has been in a library's trash longer than TRASH_DAYS. */
 async function emptyOldTrash(root) {
   const trash = path.join(root, '.trash');
@@ -304,6 +345,15 @@ async function handle(req, res) {
   }
 
   // ---- the account ----
+  if (url.pathname === '/v1/trash' || url.pathname === '/v1/trash/restore') {
+    const root = who.root;
+    if (route === 'GET /v1/trash') return send(200, { items: await trashList(root), days: TRASH_DAYS });
+    if (route === 'POST /v1/trash/restore') {
+      const out = await serial(() => restoreFromTrash(root, url.searchParams.get('id'), who.user));
+      return send(200, out);
+    }
+    return send(404, { error: 'not found' });
+  }
   if (url.pathname === '/v1/me' || url.pathname === '/v1/space' || url.pathname === '/v1/logout' || url.pathname === '/v1/devices' || url.pathname === '/v1/password' || url.pathname === '/v1/users') {
     if (who.legacy) return send(409, { error: 'setup' }); // no accounts yet
     const { user, hash } = who;
