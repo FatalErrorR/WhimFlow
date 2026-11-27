@@ -1,6 +1,7 @@
 node_modules/
 dist/
 src/renderer/dist/
+src/renderer/vendor/
 
 .DS_Store
 *.log

@@ -13,6 +13,15 @@ const mobile = process.argv.includes('mobile');
 const common = { bundle: true, format: 'iife', platform: 'browser', minify: !watch, sourcemap: watch ? 'inline' : false, legalComments: 'none', logLevel: 'info' };
 
 if (!mobile) {
+  // what the app shows from KaTeX and Mermaid, copied beside the page: only these files are packaged,
+  // not the packages (Mermaid alone brings 150 MB of builds and dependencies)
+  const vendor = path.join(root, 'src/renderer/vendor');
+  fs.rmSync(vendor, { recursive: true, force: true });
+  fs.mkdirSync(path.join(vendor, 'katex'), { recursive: true });
+  fs.cpSync(path.join(root, 'node_modules/katex/dist/katex.min.css'), path.join(vendor, 'katex/katex.min.css'));
+  fs.cpSync(path.join(root, 'node_modules/katex/dist/fonts'), path.join(vendor, 'katex/fonts'), { recursive: true });
+  fs.writeFileSync(path.join(vendor, 'katex/VERSION'), require(path.join(root, 'node_modules/katex/package.json')).version);
+  fs.cpSync(path.join(root, 'node_modules/mermaid/dist/mermaid.min.js'), path.join(vendor, 'mermaid.min.js'));
   const opts = { ...common, entryPoints: [path.join(root, 'src/renderer/js/app.js')], outfile: path.join(root, 'src/renderer/dist/app.js'), target: 'chrome130' };
   if (watch) esbuild.context(opts).then((c) => c.watch());
   else esbuild.build(opts).catch(() => process.exit(1));
@@ -40,7 +49,6 @@ if (!mobile) {
       swap("script-src 'self' file: 'unsafe-eval';", "script-src 'self' file: blob: 'unsafe-eval'; worker-src 'self' blob:;"); // search runs in a worker
       // the sync server: https anywhere; plain http only on this computer (as the app itself allows: tests)
       swap("script-src 'self' file: blob:", "connect-src 'self' file: data: blob: https: http://127.0.0.1:* http://localhost:*; script-src 'self' file: blob:");
-      swap('href="../../node_modules/katex/dist/katex.min.css"', 'href="vendor/katex/katex.min.css"');
       swap('<link rel="stylesheet" href="editor.css">', '<link rel="stylesheet" href="editor.css">\n<link rel="stylesheet" href="mobile.css">');
       swap('<script src="dist/app.js"></script>', '<script src="app.js"></script>');
       fs.writeFileSync(path.join(www, 'index.html'), html);

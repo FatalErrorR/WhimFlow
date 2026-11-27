@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const nm = path.join(__dirname, '..', '..', 'node_modules');
+const vendor = path.join(__dirname, '..', 'renderer', 'vendor'); // KaTeX's css and fonts, copied by scripts/build.js
 const renderer = path.join(__dirname, '..', 'renderer');
 const fileUrl = (p) => require('url').pathToFileURL(p).href; // spaces, #, ? and CJK in the app's path survive
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch (_) { return ''; } };
@@ -16,8 +16,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** A standalone page. `local` uses bundled fonts/KaTeX css (PDF, PNG, Word); otherwise a CDN. */
 function buildHtml({ body, title, theme }, { local = false, light = false } = {}) {
   if (light && ['slate', 'midnight'].includes(theme)) theme = 'daylight';
-  const katexVer = JSON.parse(read(path.join(nm, 'katex', 'package.json')) || '{}').version || '0.16.11';
-  const katex = local ? fileUrl(path.join(nm, 'katex', 'dist', 'katex.min.css')) : `https://cdn.jsdelivr.net/npm/katex@${katexVer}/dist/katex.min.css`;
+  const katexVer = (read(path.join(vendor, 'katex', 'VERSION')) || '').trim() || '0.16.11';
+  const katex = local ? fileUrl(path.join(vendor, 'katex', 'katex.min.css')) : `https://cdn.jsdelivr.net/npm/katex@${katexVer}/dist/katex.min.css`;
   const fonts = local ? `\n<link rel="stylesheet" href="${fileUrl(path.join(renderer, 'fonts', 'fonts.css'))}">` : '';
   return `<!doctype html>
 <html data-theme="${esc(theme)}">

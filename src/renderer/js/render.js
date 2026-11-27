@@ -331,7 +331,7 @@ function loadMermaid() {
   if (!mermaidReady) {
     mermaidReady = new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = window.WHIMFLOW_MERMAID || '../../node_modules/mermaid/dist/mermaid.min.js'; // the iOS bundle ships it elsewhere
+      s.src = window.WHIMFLOW_MERMAID || 'vendor/mermaid.min.js'; // copied there by scripts/build.js
       s.onload = () => resolve(window.mermaid);
       s.onerror = () => reject(new Error('mermaid failed to load'));
       document.head.append(s);
@@ -341,22 +341,39 @@ function loadMermaid() {
 }
 const isDark = () => ['slate', 'midnight'].includes(document.documentElement.dataset.theme);
 export function cachedMermaid(src) { return svgCache.get((isDark() ? 'd:' : 'l:') + src); }
-export async function renderMermaidSource(src) {
+// Diagrams are drawn one at a time: Mermaid works in a container of its own in the page, and two
+// drawings at once (the editor redrawing a block while the final view draws it) took each other's
+// container away ("Cannot read properties of null"). The same diagram asked for twice is drawn once.
+// A drawing that failed is not kept, so it is tried again next time.
+let mermaidQueue = Promise.resolve();
+const mermaidPending = new Map();
+export function renderMermaidSource(src) {
   const key = (isDark() ? 'd:' : 'l:') + src;
-  if (svgCache.has(key)) return svgCache.get(key);
-  const mermaid = await loadMermaid();
-  const theme = isDark() ? 'dark' : 'neutral';
-  if (mermaidTheme !== theme) {
-    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme, fontFamily: getComputedStyle(document.body).getPropertyValue('--ui-font') });
-    mermaidTheme = theme;
-  }
-  let svg;
-  try { ({ svg } = await mermaid.render('mf-mermaid-' + (++seq), src)); }
-  catch (err) { svg = `<div class="render-error">${esc(String(err && err.message || err).split('\n')[0])}</div>`; }
-  document.querySelectorAll('body > [id^="dmf-mermaid-"]').forEach((n) => n.remove());
-  if (svgCache.size > 200) svgCache.clear();
-  svgCache.set(key, svg);
-  return svg;
+  if (svgCache.has(key)) return Promise.resolve(svgCache.get(key));
+  if (mermaidPending.has(key)) return mermaidPending.get(key);
+  const job = mermaidQueue.catch(() => {}).then(async () => {
+    if (svgCache.has(key)) return svgCache.get(key);
+    const mermaid = await loadMermaid();
+    const theme = isDark() ? 'dark' : 'neutral';
+    if (mermaidTheme !== theme) {
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme, fontFamily: getComputedStyle(document.body).getPropertyValue('--ui-font') });
+      mermaidTheme = theme;
+    }
+    const id = 'mf-mermaid-' + (++seq);
+    let svg;
+    try {
+      ({ svg } = await mermaid.render(id, src));
+      if (svgCache.size > 200) svgCache.clear();
+      svgCache.set(key, svg);
+    } catch (err) { svg = `<div class="render-error">${esc(String(err && err.message || err).split('\n')[0])}</div>`; }
+    const left = document.getElementById('d' + id); // only this drawing's own container
+    if (left) left.remove();
+    return svg;
+  });
+  mermaidQueue = job;
+  mermaidPending.set(key, job);
+  job.finally(() => mermaidPending.delete(key)).catch(() => {});
+  return job;
 }
 export async function renderMermaidIn(root) {
   await Promise.all([...root.querySelectorAll('.mermaid-block[data-src]')].map(async (el) => {

@@ -126,6 +126,7 @@ npm test
 | `npm run test:sync` | the sync server, the sync engine between two devices, the desktop's sync on real folders | none |
 | `npm run test:mobile` | the iPhone and iPad app in headless Chromium, including sync against a local server | none |
 | `npm test` | all of the above plus the desktop end-to-end tests (Playwright driving Electron) | yes |
+| `npm run test:package` | packages the app (`electron-builder --dir`) and checks the package itself: formulas, diagrams, exports | none (hidden) |
 
 The desktop end-to-end tests can run without showing anything: `WHIMFLOW_HIDDEN=1 npm test` draws the windows but never shows them, and hides the Dock icon. All tests read and write only in the system's temporary folder.
 
